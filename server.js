@@ -7,6 +7,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const express = require('express');
+const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
@@ -18,7 +19,10 @@ const { Server } = require('socket.io');
 const app = express();
 app.set('trust proxy', 1);
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, { maxHttpBufferSize: 1e6 });
+const io = new Server(httpServer, {
+  maxHttpBufferSize: 1e6,
+  cors: { origin: process.env.CORS_ORIGIN || '*' }
+});
 const uploadDir = process.env.UPLOAD_DIR || path.join(os.homedir(), '.anti-null', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -61,6 +65,7 @@ const announcementStore = [];
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
 app.disable('x-powered-by');
+app.use(cors());
 app.use(helmet({
   contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"], scriptSrc: ["'self'", "'unsafe-inline'"], styleSrc: ["'self'", "'unsafe-inline'"],
@@ -295,29 +300,55 @@ io.on('connection', (socket) => {
   });
 });
 
-async function startServer({ port = Number(process.env.PORT) || 0 } = {}) {
-  if (process.env.MONGODB_URI) {
+async function connectToMongo(uri, shouldStop) {
+  let retryDelayMs = 1000;
+  while (!shouldStop()) {
     try {
-      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
-      await ensureOwnerAccount();
+      await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
+      break;
     } catch (error) {
-      console.error('MongoDB authentication failed. Check the Atlas username/password and Atlas IP allowlist.');
-      console.error(error.message);
-      throw error;
+      console.error(`MongoDB connection failed; retrying in ${retryDelayMs}ms: ${error.message}`);
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, retryDelayMs);
+        timer.unref();
+      });
+      retryDelayMs = Math.min(retryDelayMs * 2, 30000);
     }
-  } else {
-    console.warn('MongoDB is not configured. Configure MONGODB_URI to enable accounts and social features.');
   }
+  if (shouldStop() || mongoose.connection.readyState !== 1) return;
+  try {
+    await ensureOwnerAccount();
+  } catch (error) {
+    console.error(`MongoDB connected, but account initialization failed: ${error.message}`);
+  }
+}
+
+async function startServer({ port = Number(process.env.PORT) || 3000 } = {}) {
   await new Promise((resolve, reject) => {
     httpServer.once('error', reject);
-    httpServer.listen(port, '127.0.0.1', resolve);
+    httpServer.listen(port, '0.0.0.0', resolve);
   });
   const address = httpServer.address();
-  return { url: `http://127.0.0.1:${address.port}`, close: () => httpServer.close() };
+  let isClosing = false;
+  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+  if (mongoUri) {
+    connectToMongo(mongoUri, () => isClosing).catch((error) => {
+      console.error(`MongoDB initialization failed: ${error.message}`);
+    });
+  } else {
+    console.warn('MongoDB is not configured. Configure MONGO_URI to enable accounts and social features.');
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () => {
+      isClosing = true;
+      return httpServer.close();
+    }
+  };
 }
 
 if (require.main === module) {
-  startServer({ port: Number(process.env.PORT) || 4173 })
+  startServer()
     .then(({ url }) => console.log(`Anti-Null server listening at ${url}`))
     .catch((error) => { console.error(error.message); process.exitCode = 1; });
 }
