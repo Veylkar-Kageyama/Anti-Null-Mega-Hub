@@ -1,0 +1,54 @@
+{
+  "name": "anti-null-mega-hub",
+  "version": "0.1.0",
+  "description": "A secure desktop social hub and 3D creation studio.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "start:server": "node server.js",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "fengari": "^0.1.4",
+    "fengari-web": "^0.1.4",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "multer": "^1.4.5-lts.1",
+    "cropperjs": "^1.6.2",
+    "socket.io": "^4.8.1",
+    "three": "^0.172.0"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.antinull.megahub",
+    "productName": "Anti-Null Mega Hub",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "server.js",
+      "public/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#140126">
+  <title>Anti-Null | Mega Hub</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/vendor/cropperjs/dist/cropper.min.css">
+  <script type="importmap">
+    {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three-addons/","cropperjs":"/vendor/cropperjs/dist/cropper.esm.js"}}
+  </script>
+  <script src="/socket.io/socket.io.js" defer></script>
+  <script src="/binary.js" defer></script>
+  <script type="module" src="/dashboard.js"></script>
+</head>
+<body class="hub-page">
+  <canvas class="binary-rain" aria-hidden="true"></canvas>
+  <header class="topbar">
+    <a class="wordmark" href="/dashboard.html"><span class="brand-mark mini">A<span>/</span>N</span><span>ANTI-NULL <b>MEGA HUB</b></span></a>
+    <div class="topbar-center"><span class="live-dot"></span> FREQUENCY ACTIVE <span class="topbar-divider">/</span><span id="utc-clock">--:--:-- UTC</span></div>
+    <div class="user-menu"><button class="avatar-button" id="avatar-button" title="Edit profile">AN</button><span id="user-callsign">CALLSIGN</span><button class="icon-button" id="signout-button" title="Sign out" aria-label="Sign out">↗</button></div>
+  </header>
+  <main class="hub-layout">
+    <aside class="side-rail">
+      <div class="rail-label">NAVIGATION</div>
+      <button class="rail-link active" data-view="home"><span class="rail-icon">⌂</span><span>Hub</span></button>
+      <button class="rail-link" data-view="frequency"><span class="rail-icon">◉</span><span>Frequency</span><i id="chat-count"></i></button>
+      <button class="rail-link" data-view="forge"><span class="rail-icon">⌘</span><span>Forge</span><span class="lock-indicator" id="forge-lock-indicator">LOCKED</span></button>
+      <button class="rail-link" data-view="vault"><span class="rail-icon">▤</span><span>Vault</span></button>
+      <button class="rail-link" data-view="chronicles"><span class="rail-icon">≋</span><span>Chronicles</span></button>
+      <button class="rail-link admin-link hidden" data-view="admin"><span class="rail-icon">⛭</span><span>Admin</span></button>
+      <div class="rail-bottom"><span class="status-pip"></span><span>REALM STABLE</span><button class="icon-button" id="reality-glitch" title="Reality Glitch" aria-label="Trigger Reality Glitch">⌁</button></div>
+    </aside>
+    <section class="view-stage">
+      <section class="view-panel active" id="view-home">
+        <div class="view-heading"><div><div class="eyebrow">PERSONAL CONSOLE / 001</div><h1>Welcome back, <span id="welcome-callsign">Creator</span></h1></div><div class="heading-meta">YOUR REALM <b>ONLINE</b></div></div>
+        <div class="home-grid">
+          <section class="orbital-panel glass-panel circuit-cut">
+            <div class="panel-kicker">ORBITAL HUB <span>SELECT A FREQUENCY</span></div>
+            <div class="orbit-system">
+              <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+              <button class="orbit-node node-frequency" data-view="frequency" title="Open Frequency"><span>◉</span><small>FREQUENCY</small></button>
+              <button class="orbit-node node-forge" data-view="forge" title="Open Forge"><span>⌘</span><small>FORGE</small></button>
+              <button class="orbit-node node-vault" data-view="vault" title="Open Vault"><span>▤</span><small>VAULT</small></button>
+              <button class="orbit-node node-chronicles" data-view="chronicles" title="Open Chronicles"><span>≋</span><small>CHRONICLES</small></button>
+              <button class="core-orb" data-view="frequency" aria-label="Open the hub"><span class="core-inner">A<span>/</span>N</span><small>THE CORE</small></button>
+            </div>
+            <div class="orbital-footer"><span><i class="status-pip"></i> CORE SYNCHRONIZED</span><span id="online-count">0 CREATORS ONLINE</span></div>
+          </section>
+          <aside class="home-aside">
+            <section class="glass-panel circuit-cut compact-panel"><div class="panel-kicker">CREATOR STATUS <span>LIVE</span></div><div class="status-row"><span>Access tier</span><strong id="user-role">MEMBER</strong></div><div class="status-row"><span>Creator's Hammer</span><strong id="hammer-status">NOT GRANTED</strong></div><button class="text-action" data-view="forge">Open creation studio ↗</button></section>
+            <section class="glass-panel circuit-cut compact-panel event-preview"><div class="panel-kicker">LATEST CHRONICLE <span>01</span></div><p id="latest-announcement">No announcements have reached the frequency.</p><button class="text-action" data-view="chronicles">View all chronicles ↗</button></section>
+          </aside>
+        </div>
+        <div class="section-title"><div><div class="eyebrow">LIVE NETWORK</div><h2>Across the void</h2></div><button class="secondary-button circuit-cut" data-view="frequency">Open frequency ↗</button></div>
+        <section class="feed-strip glass-panel circuit-cut" id="home-feed"><div class="empty-state">The frequency is quiet. Start a conversation.</div></section>
+      </section>
+      <section class="view-panel" id="view-frequency">
+        <div class="view-heading"><div><div class="eyebrow">COMMUNICATION / 002</div><h1>The Frequency</h1></div><div class="chat-room-picker"><label for="room-id">ROOM</label><select id="room-id"><option value="global">Global</option></select><button class="icon-button" id="new-group" title="Create group" aria-label="Create group">+</button></div></div>
+        <div class="chat-layout glass-panel circuit-cut"><aside class="room-list"><div class="panel-kicker">CHANNELS</div><button class="room-option active" data-room="global">◉ &nbsp; Global signal</button><button class="room-option" id="direct-room">◇ &nbsp; Private message</button><div class="panel-kicker room-section-label">DIRECT SIGNALS</div><div id="group-list"></div></aside><div class="chat-main"><div class="chat-header"><div><strong id="chat-title">Global signal</strong><small>Messages are timestamped in your local time</small></div><span class="connection-label" id="socket-status">OFFLINE</span></div><div class="message-list" id="message-list" aria-live="polite"></div><form class="chat-composer" id="chat-form"><button type="button" class="icon-button" id="attach-message" title="Attach image or audio" aria-label="Attach media">＋</button><input id="chat-input" maxlength="4000" autocomplete="off" placeholder="Transmit a message..." aria-label="Message"><button class="primary-button circuit-cut" type="submit">SEND <span>↗</span></button></form></div></div>
+      </section>
+      <section class="view-panel forge-view" id="view-forge">
+        <div class="forge-menu"><div class="forge-title"><span class="brand-mark mini">A<span>/</span>N</span><strong>THE FORGE</strong><span class="forge-unsaved" id="save-state">UNSAVED</span></div><div class="forge-actions"><button data-menu-action="new">File</button><button data-menu-action="edit">Edit</button><button data-menu-action="view">View</button></div><div class="forge-document"><span id="scene-name">Untitled Scene</span><button class="icon-button" id="save-scene" title="Save .anull scene" aria-label="Save scene">↓</button><button class="icon-button" id="load-scene" title="Open .anull scene" aria-label="Open scene">↑</button></div></div>
+        <div class="forge-workspace">
+          <aside class="tool-strip" aria-label="Transform tools"><button class="tool-button active" data-tool="select" title="Select (Q)">⌖</button><button class="tool-button" data-tool="translate" title="Move (W)">✥</button><button class="tool-button" data-tool="rotate" title="Rotate (E)">⟳</button><button class="tool-button" data-tool="scale" title="Scale (R)">⤢</button><span class="tool-divider"></span><button class="tool-button danger-tool" id="delete-object" title="Delete selected object">⌫</button><span class="tool-divider"></span><button class="tool-button" id="import-model" title="Import 3D model">＋</button></aside>
+          <div class="viewport-wrap"><div class="viewport-toolbar"><span><i class="status-pip"></i> WORKSPACE</span><div><button id="add-cube" class="viewport-action">＋ CUBE</button><button id="add-sphere" class="viewport-action">＋ SPHERE</button><button id="add-light" class="viewport-action">＋ LIGHT</button></div><span class="viewport-hint">DRAG TO ORBIT · SCROLL TO ZOOM</span></div><div class="viewport" id="viewport"><div class="viewport-loading" id="viewport-loading">INITIALIZING 3D ENGINE</div><div class="viewport-coordinates" id="coordinates">X 0.00 &nbsp; Y 0.00 &nbsp; Z 0.00</div></div><div class="script-dock"><div class="script-head"><span>◇ SCRIPT CONSOLE</span><div><select id="script-language" aria-label="Script language"><option value="javascript">JavaScript</option><option value="lua">Lua</option></select><button id="run-script" class="viewport-action">RUN ▶</button></div></div><textarea id="script-source" spellcheck="false" aria-label="Script editor" placeholder="// Scene scripts run in a restricted worker. Use console.log()."></textarea><pre id="script-output" class="script-output" aria-live="polite">Ready.</pre></div></div>
+          <aside class="studio-sidebar"><section class="explorer-panel"><div class="studio-panel-heading">EXPLORER <button class="icon-button" id="add-object" title="Add object" aria-label="Add object">＋</button></div><div class="tree-item root-item">▾ &nbsp; Workspace</div><div id="scene-tree" class="scene-tree"></div><div class="tree-item locked-tree">▸ &nbsp; Lighting</div></section><section class="properties-panel"><div class="studio-panel-heading">PROPERTIES <span id="selected-type">NO SELECTION</span></div><div id="properties-content" class="properties-content"><div class="empty-properties">Select an object to inspect its attributes.</div></div></section><section class="assets-panel"><div class="studio-panel-heading">ASSETS <button class="icon-button" id="import-asset" title="Import image, audio, or model" aria-label="Import asset">＋</button></div><div id="asset-list" class="asset-list"><span class="muted small">No imported assets</span></div></section></aside>
+        </div>
+        <section class="locked-overlay hidden" id="forge-locked"><div class="lock-glyph">⌑</div><div class="eyebrow">ACCESS RESTRICTED / CREATOR TIER</div><h2>THE FORGE IS LOCKED</h2><p>The Creator's Hammer is required to enter the studio.</p><span>REQUEST ACCESS FROM AN ADMINISTRATOR</span></section>
+      </section>
+      <section class="view-panel" id="view-vault"><div class="view-heading"><div><div class="eyebrow">PRIVATE STORAGE / 003</div><h1>The Vault</h1></div><button class="primary-button circuit-cut" id="vault-upload">＋ STORE FRAGMENT</button></div><div class="vault-content glass-panel circuit-cut"><div class="vault-intro"><span class="vault-symbol">▤</span><div><h2>Your creative fragments</h2><p>Private storage for images, models, and audio. Files stay on this device.</p></div></div><input id="vault-file" type="file" hidden accept="image/*,audio/*,.obj,.gltf,.glb"><div id="vault-items" class="vault-grid"><div class="empty-state">The vault is empty.</div></div></div></section>
+      <section class="view-panel" id="view-chronicles"><div class="view-heading"><div><div class="eyebrow">REALM ARCHIVE / 004</div><h1>Chronicles</h1></div></div><div class="chronicle-feed" id="chronicle-feed"><div class="empty-state glass-panel circuit-cut">No announcements have reached the realm.</div></div><div class="admin-compose hidden" id="announcement-compose"><textarea id="announcement-text" maxlength="2000" placeholder="Write a realm announcement..."></textarea><button class="primary-button circuit-cut" id="post-announcement">PUBLISH</button></div></section>
+      <section class="view-panel" id="view-admin"><div class="view-heading"><div><div class="eyebrow">REALM OVERSIGHT / 005</div><h1>Admin console</h1></div><span class="admin-stamp">ELEVATED ACCESS</span></div><div class="admin-grid"><section class="glass-panel circuit-cut admin-section"><div class="panel-kicker">VALIDATION HUB <span>PENDING</span></div><div id="pending-users" class="pending-list"><div class="empty-state">Loading requests...</div></div></section><section class="glass-panel circuit-cut admin-section"><div class="panel-kicker">GLOBAL BROADCAST</div><textarea id="broadcast-text" maxlength="500" placeholder="Transmit a Void Toast..."></textarea><button class="primary-button circuit-cut" id="send-broadcast">BROADCAST ↗</button><div class="panel-kicker glitch-heading">REALITY GLITCH</div><p class="muted small">Send a realm-wide visual disruption to connected clients.</p><button class="danger-button circuit-cut" id="admin-glitch">TRIGGER GLITCH</button></section></div></section>
+    </section>
+  </main>
+  <dialog id="profile-dialog" class="modal-panel circuit-cut"><form method="dialog" class="modal-close"><button class="icon-button" aria-label="Close">×</button></form><div class="eyebrow">IDENTITY SETTINGS</div><h2>Creator profile</h2><label for="profile-bio">BIO <span id="bio-count">0 / 250</span></label><textarea id="profile-bio" maxlength="250"></textarea><div class="crop-preview"><img id="avatar-preview" alt="Profile crop preview"></div><button type="button" class="secondary-button circuit-cut" id="choose-avatar">Choose and crop image</button><button type="button" class="primary-button circuit-cut" id="save-profile">SAVE PROFILE</button></dialog>
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+</body>
+</html>

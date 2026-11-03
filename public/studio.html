@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>Anti-Null Studio</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three-addons/"}}
+  </script>
+  <script type="module" src="/studio.js"></script>
+</head>
+<body class="studio-page">
+  <div class="studio-shell">
+    <header class="studio-topbar">
+      <div class="studio-brand">
+        <div class="studio-logo">A<span>/</span>N</div>
+        <div class="studio-meta">
+          <strong>Anti-Null Studio</strong>
+          <small id="studio-scene-name">Untitled</small>
+        </div>
+      </div>
+
+      <nav class="studio-menu" aria-label="Studio menu">
+        <button id="menu-file">File</button>
+        <button id="menu-edit">Edit</button>
+        <button id="menu-view">View</button>
+        <button id="menu-insert">Insert</button>
+        <button id="menu-tools">Tools</button>
+        <button id="menu-run">Run</button>
+        <button id="menu-help">Help</button>
+      </nav>
+
+      <div class="studio-actions">
+        <button class="ghost-btn" id="studio-back-home">Hub</button>
+        <button class="primary-btn" id="studio-save-scene">Save</button>
+        <button class="primary-btn" id="studio-play-scene">Play</button>
+      </div>
+    </header>
+
+    <div class="studio-toolbar">
+      <button class="tool-button active" data-tool="select" title="Select">Select</button>
+      <button class="tool-button" data-tool="translate" title="Move">Move</button>
+      <button class="tool-button" data-tool="rotate" title="Rotate">Rotate</button>
+      <button class="tool-button" data-tool="scale" title="Scale">Scale</button>
+      <button class="tool-button" id="studio-group-selected">Group</button>
+      <button class="tool-button" id="studio-ungroup-selected">Ungroup</button>
+      <button class="tool-button" id="studio-anchor-toggle">Anchor</button>
+      <button class="tool-button" id="studio-material-manager">Material</button>
+      <button class="tool-button" id="studio-game-settings">Settings</button>
+      <div class="toolbar-divider"></div>
+      <button class="tool-button" id="studio-add-cube">Cube</button>
+      <button class="tool-button" id="studio-add-sphere">Sphere</button>
+      <button class="tool-button" id="studio-add-light">Light</button>
+      <button class="tool-button" id="studio-add-rig">Rig</button>
+      <button class="tool-button" id="studio-add-folder">Folder</button>
+      <button class="tool-button danger" id="studio-delete-selection">Delete</button>
+      <div class="toolbar-divider"></div>
+      <button class="tool-button" id="studio-import-model">Import</button>
+    </div>
+
+    <main class="studio-layout">
+      <aside class="studio-panel asset-panel">
+        <div class="panel-header">
+          <span>Asset Forge</span>
+          <button class="mini-btn" id="studio-new-script-file">＋</button>
+        </div>
+        <div class="asset-search-wrap">
+          <input id="asset-search" type="search" placeholder="Search assets" aria-label="Search assets">
+        </div>
+        <div class="asset-category-list" id="asset-category-list"></div>
+      </aside>
+
+      <section class="studio-viewport-shell">
+        <div class="viewport-header">
+          <div class="viewport-tabs">
+            <span class="active">3D View</span>
+            <span>Script</span>
+          </div>
+          <div class="viewport-actions">
+            <button class="mini-btn" id="studio-open-scene">Open</button>
+            <button class="mini-btn" id="studio-create-folder">Folder</button>
+          </div>
+        </div>
+        <div id="studio-viewport" class="studio-viewport" aria-label="3D viewport">
+          <div class="viewport-loading" id="studio-viewport-loading">INITIALIZING STUDIO</div>
+        </div>
+        <div class="studio-statusbar">
+          <span id="studio-coordinates">X 0.00   Y 0.00   Z 0.00</span>
+          <span class="status-pill" id="studio-save-state">Unsaved</span>
+        </div>
+      </section>
+
+      <aside class="studio-panel right-panel">
+        <div class="panel-header">
+          <span>Existence Tree</span>
+          <button class="mini-btn" id="studio-add-object">＋</button>
+        </div>
+        <div id="studio-scene-tree" class="scene-tree"></div>
+        <div class="panel-header props-header">
+          <span>Attribute Matrix</span>
+          <span class="panel-badge" id="studio-selected-kind">None</span>
+        </div>
+        <div id="studio-properties" class="properties-list">
+          <div class="empty-state">Select an instance to inspect its properties.</div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="studio-footer">
+      <div class="script-header">
+        <span>Script Console</span>
+        <div class="script-controls">
+          <select id="studio-script-language">
+            <option value="javascript">JavaScript</option>
+            <option value="lua">Lua</option>
+          </select>
+          <button class="primary-btn" id="studio-run-script">Run</button>
+        </div>
+      </div>
+      <div class="script-editor-wrap">
+        <aside class="script-file-list" id="script-file-list"></aside>
+        <div class="editor-pane">
+          <textarea id="studio-script" spellcheck="false" aria-label="Studio script editor">// Create a new world script or select a script file from the explorer.</textarea>
+          <pre id="studio-script-output" class="script-output">Ready.</pre>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

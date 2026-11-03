@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#140126">
+  <title>Anti-Null | Access</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/binary.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body class="auth-page">
+  <canvas class="binary-rain" aria-hidden="true"></canvas>
+  <main class="auth-layout">
+    <div class="auth-brand">
+      <div class="brand-mark" aria-hidden="true">A<span>/</span>N</div>
+      <div class="eyebrow">ANTI-NULL / MEGA HUB</div>
+      <h1>Enter the<br><em>Void.</em></h1>
+      <p class="muted">A frequency for creators. A forge for worlds.</p>
+      <div class="signal-line"><span></span> SYSTEM ONLINE <span class="signal-value" id="system-status">CONNECTING</span></div>
+    </div>
+    <section class="auth-panel glass-panel circuit-cut">
+      <div class="panel-kicker">IDENTITY GATE <span>01 / 04</span></div>
+      <div class="auth-tabs" role="tablist">
+        <button class="tab-button active" data-auth-mode="login" type="button">Sign in</button>
+        <button class="tab-button" data-auth-mode="signup" type="button">Request access</button>
+      </div>
+      <form id="auth-form">
+        <label for="email">EMAIL</label>
+        <input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="you@domain.com">
+        <div class="signup-only hidden"><label for="username">CALLSIGN</label><input id="username" name="username" autocomplete="username" minlength="3" maxlength="24" placeholder="3-24 characters"></div>
+        <label for="password">PASSPHRASE</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" minlength="12" required placeholder="At least 12 characters">
+        <button class="primary-button circuit-cut full-width" type="submit" id="auth-submit">Establish connection <span>↗</span></button>
+      </form>
+      <p class="form-message" id="auth-message" role="status" aria-live="polite"></p>
+      <details class="bootstrap-panel hidden" id="bootstrap-panel">
+        <summary>INITIAL ADMIN SETUP</summary>
+        <p class="muted small">Only available when deployment credentials are configured. This setup can run once.</p>
+        <form id="bootstrap-form">
+          <label for="bootstrap-email">CONFIGURED ADMIN EMAIL</label><input id="bootstrap-email" type="email" required>
+          <label for="bootstrap-name">CALLSIGN</label><input id="bootstrap-name" minlength="3" maxlength="24" required>
+          <label for="bootstrap-secret">DEPLOYMENT SECRET</label><input id="bootstrap-secret" type="password" required>
+          <label for="bootstrap-password">NEW PASSPHRASE</label><input id="bootstrap-password" type="password" minlength="12" required>
+          <button class="secondary-button circuit-cut full-width" type="submit">Initialize administrator</button>
+        </form>
+      </details>
+      <div class="auth-foot"><span>ENCRYPTED LOCAL CHANNEL</span><span>BUILD 0.1.0</span></div>
+    </section>
+  </main>
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+</body>
+</html>
