@@ -301,6 +301,10 @@ io.on('connection', (socket) => {
 });
 
 async function connectToMongo(uri, shouldStop) {
+  if (/[<>]/.test(uri)) {
+    console.error('MONGO_URI still contains a placeholder. Replace it with the complete connection string from MongoDB Atlas.');
+    return;
+  }
   let retryDelayMs = 1000;
   while (!shouldStop()) {
     try {
