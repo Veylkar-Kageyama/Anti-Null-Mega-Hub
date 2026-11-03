@@ -307,7 +307,12 @@ async function connectToMongo(uri, shouldStop) {
       await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
       break;
     } catch (error) {
-      console.error(`MongoDB connection failed; retrying in ${retryDelayMs}ms: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      if (error?.code === 8000 || error?.codeName === 'AuthenticationFailed' || /bad auth|authentication failed/i.test(message)) {
+        console.error('MongoDB authentication failed. Check that MONGO_URI uses a valid Atlas database user and URL-encoded credentials.');
+        return;
+      }
+      console.error(`MongoDB connection failed; retrying in ${retryDelayMs}ms: ${message}`);
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, retryDelayMs);
         timer.unref();
