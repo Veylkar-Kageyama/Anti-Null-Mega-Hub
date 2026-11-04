@@ -27,6 +27,7 @@
       <button class="rail-link active" data-view="home"><span class="rail-icon">⌂</span><span>Hub</span></button>
       <button class="rail-link" data-view="frequency"><span class="rail-icon">◉</span><span>Frequency</span><i id="chat-count"></i></button>
       <button class="rail-link" data-view="arcade"><span class="rail-icon">▣</span><span>Arcade</span></button>
+      <button class="rail-link" data-view="import"><span class="rail-icon">⇧</span><span>Import</span></button>
       <button class="rail-link" data-view="forge"><span class="rail-icon">⌘</span><span>Forge</span><span class="lock-indicator" id="forge-lock-indicator">LOCKED</span></button>
       <button class="rail-link" data-view="vault"><span class="rail-icon">▤</span><span>Vault</span></button>
       <button class="rail-link" data-view="chronicles"><span class="rail-icon">≋</span><span>Chronicles</span></button>
@@ -64,6 +65,10 @@
       <section class="view-panel" id="view-arcade">
         <div class="view-heading"><div><div class="eyebrow">INTERFERENCE / 008</div><h1>Afterimage Arcade</h1><p class="small muted">Six original signal games. Choose a cabinet and make your mark.</p></div><div class="heading-meta">LOCAL PLAY <b>INSERT COIN: FREE</b></div></div>
         <div id="arcade-shell" class="arcade-shell"></div>
+      </section>
+      <section class="view-panel" id="view-import">
+        <div class="view-heading"><div><div class="eyebrow">PLACE ARCHIVE / 009</div><h1>Import</h1><p class="small muted">Preview supported Roblox Studio place geometry and keep your imported project with your A‑Null account.</p></div><div class="heading-meta">LOCAL FILE <b>RBXL / RBXLX</b></div></div>
+        <div id="import-shell" class="import-shell"></div>
       </section>
       <section class="view-panel forge-view" id="view-forge">
         <div class="forge-menu"><div class="forge-title"><span class="brand-mark mini">A<span>/</span>N</span><strong>THE FORGE</strong><span class="forge-unsaved" id="save-state">UNSAVED</span></div><div class="forge-actions"><button data-menu-action="new">File</button><button data-menu-action="edit">Edit</button><button data-menu-action="view">View</button></div><div class="forge-document"><span id="scene-name">Untitled Scene</span><button class="icon-button" id="save-scene" title="Save .anull scene" aria-label="Save scene">↓</button><button class="icon-button" id="load-scene" title="Open .anull scene" aria-label="Open scene">↑</button></div></div>

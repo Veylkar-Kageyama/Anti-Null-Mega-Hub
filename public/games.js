@@ -454,7 +454,16 @@ export function initializeArcade({ api, socket, user } = {}) {
     const header = make('div', 'arcade-game-header');
     header.append(make('div', '', `${game.mark} / ${game.genre}`), make('h2', '', game.name));
     const back = makeButton('← CABINET ROW', 'arcade-back', showMenu);
-    header.append(back);
+    const fullscreen = makeButton('FULLSCREEN', 'arcade-back', async () => {
+      try {
+        if (document.fullscreenElement === shell) await document.exitFullscreen();
+        else await shell.requestFullscreen();
+      } catch {
+        fullscreen.textContent = 'FULLSCREEN UNAVAILABLE';
+      }
+    });
+    fullscreen.dataset.arcadeFullscreen = 'true';
+    header.append(fullscreen, back);
     const screen = make('div', 'arcade-screen');
     shell.append(header, screen);
     if (gameId === 'pulse-run') runPulse(screen);
@@ -471,6 +480,15 @@ export function initializeArcade({ api, socket, user } = {}) {
       });
     }
   }
+
+  window.addEventListener('app:arcade-launch', (event) => {
+    const gameId = event.detail?.gameId;
+    if (games.some((game) => game.id === gameId)) openGame(gameId);
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const fullscreen = shell.querySelector('[data-arcade-fullscreen]');
+    if (fullscreen) fullscreen.textContent = document.fullscreenElement === shell ? 'EXIT FULLSCREEN' : 'FULLSCREEN';
+  });
 
   function runPulse(screen) {
     const canvas = make('canvas', 'pulse-canvas');

@@ -5,14 +5,24 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import Cropper from 'cropperjs';
 import { initializeArcade } from './games.js';
+import { initializeImporter } from './importer.js';
 
 const token = sessionStorage.getItem('antiNullToken');
 if (!token) location.replace('/');
 const headers = () => ({ Authorization: `Bearer ${token}` });
 const api = async (url, options = {}) => {
-  const response = await fetch(url, { ...options, headers: { ...headers(), ...options.headers } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || 'Request failed.');
+  const { responseType, ...fetchOptions } = options;
+  const response = await fetch(url, { ...fetchOptions, headers: { ...headers(), ...options.headers } });
+  const data = responseType === 'text'
+    ? await response.text()
+    : await response.json().catch(() => ({}));
+  if (!response.ok) {
+    let message = 'Request failed.';
+    if (responseType === 'text') {
+      try { message = JSON.parse(data).error || message; } catch {}
+    } else message = data.error || message;
+    throw new Error(message);
+  }
   return data;
 };
 const toast = (text, error = false) => {
@@ -54,6 +64,7 @@ async function initialize() {
   wireAdmin();
   wireMenu();
   initializeArcade({ api, socket: state.socket, user });
+  initializeImporter({ api, user });
 }
 
 function wireNavigation() {

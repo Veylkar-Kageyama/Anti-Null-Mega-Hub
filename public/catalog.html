@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#140126">
+  <title>Anti-Null | Place File Catalog</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/catalog.js"></script>
+</head>
+<body class="hub-page">
+  <main class="catalog-page">
+    <header class="catalog-page-header">
+      <a class="wordmark" href="/dashboard.html"><span class="brand-mark mini">A<span>/</span>N</span><span>ANTI-NULL <b>PLACE CATALOG</b></span></a>
+      <a class="secondary-button circuit-cut" href="/dashboard.html">BACK TO A-NULL</a>
+    </header>
+    <section class="import-catalog catalog-page-search">
+      <div class="import-catalog-intro">
+        <h1>Find a place file</h1>
+        <p>Search public GitHub repositories for XML-format .rbxlx files. Results are limited to repositories with recognized redistribution-friendly licenses. Review each source and its license before downloading.</p>
+      </div>
+      <form class="import-catalog-controls" id="catalog-search">
+        <input class="import-catalog-search" id="catalog-query" type="search" maxlength="60" placeholder="Search, e.g. obby or showcase" aria-label="Search place files">
+        <select class="import-catalog-license" id="catalog-license" aria-label="Filter by repository license">
+          <option value="">All supported licenses</option>
+          <option value="MIT">MIT</option>
+          <option value="Apache-2.0">Apache-2.0</option>
+          <option value="BSD-3-Clause">BSD-3-Clause</option>
+          <option value="BSD-2-Clause">BSD-2-Clause</option>
+          <option value="CC0-1.0">CC0-1.0</option>
+          <option value="Unlicense">Unlicense</option>
+        </select>
+        <button class="primary-button circuit-cut" type="submit">SEARCH FILES</button>
+      </form>
+      <p class="catalog-status" id="catalog-status" aria-live="polite">Search to browse available .rbxlx files.</p>
+      <div class="import-catalog-results" id="catalog-results"></div>
+      <p class="import-catalog-disclaimer" id="catalog-notice">Searches are rate-limited. Repository licensing may not cover every individual asset; retain attribution and verify usage rights at the source.</p>
+    </section>
+  </main>
+</body>
+</html>
