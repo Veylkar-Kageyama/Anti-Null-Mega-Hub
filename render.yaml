@@ -1,6 +1,0 @@
-services:
-  - type: web
-    name: anti-null-mega-hub
-    runtime: node
-    buildCommand: npm install
-    startCommand: npm start

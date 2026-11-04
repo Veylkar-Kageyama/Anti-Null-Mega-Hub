@@ -5,8 +5,7 @@
   "main": "main.js",
   "private": true,
   "scripts": {
-    "start": "node server.js",
-    "start:desktop": "electron .",
+    "start": "electron .",
     "start:server": "node server.js",
     "dist": "electron-builder"
   },
