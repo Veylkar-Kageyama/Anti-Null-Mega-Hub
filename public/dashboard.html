@@ -26,6 +26,7 @@
       <div class="rail-label">NAVIGATION</div>
       <button class="rail-link active" data-view="home"><span class="rail-icon">⌂</span><span>Hub</span></button>
       <button class="rail-link" data-view="frequency"><span class="rail-icon">◉</span><span>Frequency</span><i id="chat-count"></i></button>
+      <button class="rail-link" data-view="arcade"><span class="rail-icon">▣</span><span>Arcade</span></button>
       <button class="rail-link" data-view="forge"><span class="rail-icon">⌘</span><span>Forge</span><span class="lock-indicator" id="forge-lock-indicator">LOCKED</span></button>
       <button class="rail-link" data-view="vault"><span class="rail-icon">▤</span><span>Vault</span></button>
       <button class="rail-link" data-view="chronicles"><span class="rail-icon">≋</span><span>Chronicles</span></button>
@@ -59,6 +60,10 @@
       <section class="view-panel" id="view-frequency">
         <div class="view-heading"><div><div class="eyebrow">COMMUNICATION / 002</div><h1>The Frequency</h1></div><div class="chat-room-picker"><label for="room-id">ROOM</label><select id="room-id"><option value="global">Global</option></select><button class="icon-button" id="new-group" title="Create group" aria-label="Create group">+</button></div></div>
         <div class="chat-layout glass-panel circuit-cut"><aside class="room-list"><div class="panel-kicker">CHANNELS</div><button class="room-option active" data-room="global">◉ &nbsp; Global signal</button><button class="room-option" id="direct-room">◇ &nbsp; Private message</button><div class="panel-kicker room-section-label">DIRECT SIGNALS</div><div id="group-list"></div></aside><div class="chat-main"><div class="chat-header"><div><strong id="chat-title">Global signal</strong><small>Messages are timestamped in your local time</small></div><span class="connection-label" id="socket-status">OFFLINE</span></div><div class="message-list" id="message-list" aria-live="polite"></div><form class="chat-composer" id="chat-form"><button type="button" class="icon-button" id="attach-message" title="Attach image or audio" aria-label="Attach media">＋</button><input id="chat-input" maxlength="4000" autocomplete="off" placeholder="Transmit a message..." aria-label="Message"><button class="primary-button circuit-cut" type="submit">SEND <span>↗</span></button></form></div></div>
+      </section>
+      <section class="view-panel" id="view-arcade">
+        <div class="view-heading"><div><div class="eyebrow">INTERFERENCE / 008</div><h1>Afterimage Arcade</h1><p class="small muted">Six original signal games. Choose a cabinet and make your mark.</p></div><div class="heading-meta">LOCAL PLAY <b>INSERT COIN: FREE</b></div></div>
+        <div id="arcade-shell" class="arcade-shell"></div>
       </section>
       <section class="view-panel forge-view" id="view-forge">
         <div class="forge-menu"><div class="forge-title"><span class="brand-mark mini">A<span>/</span>N</span><strong>THE FORGE</strong><span class="forge-unsaved" id="save-state">UNSAVED</span></div><div class="forge-actions"><button data-menu-action="new">File</button><button data-menu-action="edit">Edit</button><button data-menu-action="view">View</button></div><div class="forge-document"><span id="scene-name">Untitled Scene</span><button class="icon-button" id="save-scene" title="Save .anull scene" aria-label="Save scene">↓</button><button class="icon-button" id="load-scene" title="Open .anull scene" aria-label="Open scene">↑</button></div></div>

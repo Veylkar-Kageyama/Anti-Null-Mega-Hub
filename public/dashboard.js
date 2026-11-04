@@ -4,6 +4,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import Cropper from 'cropperjs';
+import { initializeArcade } from './games.js';
 
 const token = sessionStorage.getItem('antiNullToken');
 if (!token) location.replace('/');
@@ -52,6 +53,7 @@ async function initialize() {
   wireProfile();
   wireAdmin();
   wireMenu();
+  initializeArcade({ api, socket: state.socket, user });
 }
 
 function wireNavigation() {
@@ -68,6 +70,7 @@ function wireNavigation() {
     }
     document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.toggle('active', panel.id === `view-${view}`));
     document.querySelectorAll('.rail-link').forEach((link) => link.classList.toggle('active', link.dataset.view === view));
+    window.dispatchEvent(new CustomEvent('app:viewchange', { detail: { view } }));
     if (view === 'frequency') document.querySelector('#chat-input').focus();
   }));
   document.querySelector('#signout-button').addEventListener('click', () => {
@@ -137,17 +140,40 @@ function joinRoom(room) {
   document.querySelectorAll('.room-option').forEach((item) => item.classList.toggle('active', item.dataset.room === room));
 }
 
+function formatMessageDay(date) {
+  const day = date.getDate();
+  const suffix = day % 100 >= 11 && day % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[day % 10] || 'th');
+  const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+  const month = date.toLocaleDateString(undefined, { month: 'long' });
+  return `${weekday}, ${month} ${day}${suffix}`;
+}
+
 function renderMessage(message) {
   if (message.room !== state.room) return;
+  const date = new Date(message.createdAt);
+  const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  const list = document.querySelector('#message-list');
+  const lastMessage = list.querySelector('.message:last-of-type');
+  if (!lastMessage || lastMessage.dataset.dateKey !== dateKey) {
+    const divider = document.createElement('div');
+    divider.className = 'message-day-divider';
+    divider.setAttribute('role', 'separator');
+    const label = document.createElement('time');
+    label.dateTime = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    label.textContent = formatMessageDay(date);
+    divider.append(label);
+    list.append(divider);
+  }
   const article = document.createElement('article');
   article.className = 'message';
+  article.dataset.dateKey = dateKey;
   const meta = document.createElement('div');
   meta.className = 'message-meta';
   const name = document.createElement('strong');
   name.textContent = message.senderName || 'Creator';
   const time = document.createElement('time');
   time.dateTime = message.createdAt;
-  time.textContent = new Date(message.createdAt).toLocaleTimeString();
+  time.textContent = date.toLocaleTimeString();
   meta.append(name, time);
   article.append(meta);
   if (message.text) { const text = document.createElement('p'); text.textContent = message.text; article.append(text); }
@@ -159,7 +185,6 @@ function renderMessage(message) {
     else { element.alt = 'Shared image'; element.style.maxWidth = '220px'; }
     article.append(element);
   }
-  const list = document.querySelector('#message-list');
   list.append(article);
   list.scrollTop = list.scrollHeight;
 }
