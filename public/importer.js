@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { readEmulatorSaveState, serializeEmulatorSave } from './emulator-save.mjs';
 
 const MAX_PLACE_FILE_BYTES = 5 * 1024 ** 3;
+const PLACE_UPLOAD_CHUNK_BYTES = 8 * 1024 ** 2;
 const MAX_PARTS = 600;
 const MAX_ASSETS = 400;
 const SUPPORTED_PARTS = new Set(['Part', 'MeshPart', 'WedgePart', 'CornerWedgePart', 'TrussPart', 'UnionOperation']);
@@ -25,29 +27,60 @@ function formatBytes(bytes) {
 }
 
 function uploadPlaceFile(file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('POST', '/api/imports/parse-place');
-    request.responseType = 'json';
-    const token = sessionStorage.getItem('antiNullToken');
-    if (token) request.setRequestHeader('Authorization', `Bearer ${token}`);
-    request.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable) onProgress(event.loaded, event.total);
-    });
-    request.upload.addEventListener('load', () => onProgress(file.size, file.size, true));
-    request.addEventListener('load', () => {
-      if (request.status >= 200 && request.status < 300 && request.response?.project) {
-        resolve(request.response.project);
-      } else {
-        reject(new Error(request.response?.error || `Binary import failed with HTTP ${request.status}.`));
+  const uploadId = crypto.randomUUID();
+  const totalChunks = Math.ceil(file.size / PLACE_UPLOAD_CHUNK_BYTES);
+  const token = sessionStorage.getItem('antiNullToken');
+  const authorization = token ? `Bearer ${token}` : '';
+  return (async () => {
+    try {
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+        const start = chunkIndex * PLACE_UPLOAD_CHUNK_BYTES;
+        const chunk = file.slice(start, Math.min(start + PLACE_UPLOAD_CHUNK_BYTES, file.size));
+        const result = await new Promise((resolve, reject) => {
+          const request = new XMLHttpRequest();
+          request.open('POST', '/api/imports/place-chunk');
+          request.responseType = 'json';
+          if (authorization) request.setRequestHeader('Authorization', authorization);
+          request.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+              const chunkLoaded = Math.min(chunk.size, event.loaded / event.total * chunk.size);
+              onProgress(start + chunkLoaded, file.size);
+            }
+          });
+          request.upload.addEventListener('load', () => {
+            onProgress(start + chunk.size, file.size, chunkIndex === totalChunks - 1);
+          });
+          request.addEventListener('load', () => {
+            if (request.status >= 200 && request.status < 300) resolve(request.response);
+            else if (request.status === 413) reject(new Error('The upload service rejected an 8 MB file chunk (HTTP 413).'));
+            else reject(new Error(request.response?.error || `Binary import failed with HTTP ${request.status}.`));
+          });
+          request.addEventListener('error', () => reject(new Error('Network error while uploading the binary place.')));
+          request.addEventListener('abort', () => reject(new Error('Binary place upload was cancelled.')));
+          const formData = new FormData();
+          formData.append('uploadId', uploadId);
+          formData.append('originalName', file.name);
+          formData.append('totalSize', String(file.size));
+          formData.append('chunkIndex', String(chunkIndex));
+          formData.append('totalChunks', String(totalChunks));
+          formData.append('file', chunk, file.name);
+          request.send(formData);
+        });
+        if (chunkIndex === totalChunks - 1) {
+          if (!result?.project) throw new Error('The server did not return the imported place.');
+          return result.project;
+        }
       }
-    });
-    request.addEventListener('error', () => reject(new Error('Network error while uploading the binary place.')));
-    request.addEventListener('abort', () => reject(new Error('Binary place upload was cancelled.')));
-    const formData = new FormData();
-    formData.append('file', file, file.name);
-    request.send(formData);
-  });
+    } catch (error) {
+      try {
+        const headers = authorization ? { Authorization: authorization } : {};
+        await fetch(`/api/imports/place-chunk/${encodeURIComponent(uploadId)}`, { method: 'DELETE', headers });
+      } catch (cleanupError) {
+        console.warn(`Place upload cleanup request failed: ${cleanupError.message}`);
+      }
+      throw error;
+    }
+  })();
 }
 
 function child(parent, name) {
@@ -146,7 +179,7 @@ export function parseRbxlx(xml, sourceName) {
     throw new Error('This is not a valid XML-format Roblox place. Choose a valid .rbxlx file or import a binary .rbxl separately.');
   }
   const instances = Array.from(document.getElementsByTagName('Item'));
-  if (!instances.length || instances.length > 10000) throw new Error('The place must contain between 1 and 10,000 instances.');
+  if (!instances.length) throw new Error('The place must contain at least one instance.');
   const scene = [];
   const resources = [];
   let scripts = 0;
@@ -196,16 +229,18 @@ export function parseRbxlx(xml, sourceName) {
   };
 }
 
-function renderPreview(canvasHost, place) {
+function renderPreview(canvasHost, place, playButton, playHelp, restoredState = null) {
   canvasHost.replaceChildren();
+  playButton.disabled = !place.scene.length;
+  playButton.textContent = 'WALK PLACE';
+  playHelp.textContent = 'Preview controls: drag to orbit, scroll to zoom. Walk mode: WASD / arrows to move, Space to jump, drag to look.';
   if (!place.scene.length) {
     canvasHost.append(make('p', 'import-empty-preview', 'No supported physical parts were found in this place.'));
     return () => {};
   }
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#111720');
-  scene.fog = new THREE.Fog('#111720', 120, 420);
-  const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 1500);
+  const camera = new THREE.PerspectiveCamera(52, 1, 0.05, 1500);
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.shadowMap.enabled = true;
@@ -249,15 +284,47 @@ function renderPreview(canvasHost, place) {
   }
   const center = bounds.getCenter(new THREE.Vector3());
   root.position.sub(center);
+  root.updateMatrixWorld(true);
   const size = bounds.getSize(new THREE.Vector3());
   const maxExtent = Math.max(size.x, size.y, size.z, 12);
-  camera.position.set(maxExtent * 1.1, maxExtent * 0.85, maxExtent * 1.2);
-  camera.lookAt(0, 0, 0);
-  let yaw = Math.PI / 4;
-  let pitch = 0.35;
-  let distance = maxExtent * 2.2;
+  camera.near = Math.max(0.01, maxExtent / 100000);
+  camera.far = Math.max(1500, maxExtent * 8);
+  camera.updateProjectionMatrix();
+  let yaw = restoredState?.yaw ?? Math.PI / 4;
+  let pitch = restoredState?.pitch ?? 0.35;
+  let distance = restoredState?.distance ?? maxExtent * 2.2;
   let dragging = false;
   let lastPointer = null;
+  let playing = false;
+  let verticalVelocity = 0;
+  let jumpRequested = false;
+  const keys = new Set();
+  const platforms = place.scene.filter((part) =>
+    part.size[0] >= 12 && part.size[2] >= 12 && part.size[1] <= Math.min(part.size[0], part.size[2]) * 0.2
+  );
+  platforms.sort((a, b) => b.size[0] * b.size[2] - a.size[0] * a.size[2]);
+  const spawnPlatform = platforms[0];
+  const spawnPosition = new THREE.Vector3(
+    (spawnPlatform?.position[0] ?? center.x) - center.x,
+    (spawnPlatform ? spawnPlatform.position[1] + spawnPlatform.size[1] / 2 : center.y) - center.y,
+    (spawnPlatform?.position[2] ?? center.z) - center.z
+  );
+  const player = new THREE.Group();
+  const avatar = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.55, 1.35, 4, 8),
+    new THREE.MeshStandardMaterial({ color: '#67e8d0', roughness: 0.72 })
+  );
+  avatar.position.y = 1.23;
+  avatar.castShadow = true;
+  player.add(avatar);
+  player.position.fromArray(restoredState?.position || spawnPosition.toArray());
+  player.visible = restoredState?.playing === true;
+  playing = player.visible;
+  playButton.textContent = playing ? 'STOP WALKING' : 'WALK PLACE';
+  if (playing) playHelp.textContent = 'WASD / arrows: move · Space: jump · drag: look · scroll: camera distance';
+  scene.add(player);
+  const groundRay = new THREE.Raycaster();
+  groundRay.far = 6;
   let frame = 0;
   let running = true;
   let previous = 0;
@@ -270,6 +337,7 @@ function renderPreview(canvasHost, place) {
     camera.updateProjectionMatrix();
   };
   const onPointerDown = (event) => {
+    if (event.button !== 0) return;
     dragging = true;
     lastPointer = { x: event.clientX, y: event.clientY };
     renderer.domElement.setPointerCapture(event.pointerId);
@@ -281,7 +349,46 @@ function renderPreview(canvasHost, place) {
     lastPointer = { x: event.clientX, y: event.clientY };
   };
   const onPointerUp = () => { dragging = false; lastPointer = null; };
-  const onWheel = (event) => { distance = THREE.MathUtils.clamp(distance + event.deltaY * 0.4, maxExtent * 0.7, maxExtent * 8); };
+  const onWheel = (event) => {
+    distance = THREE.MathUtils.clamp(distance + event.deltaY * 0.4, maxExtent * 0.12, maxExtent * 8);
+  };
+  const onKeyDown = (event) => {
+    if (!playing) return;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
+    keys.add(event.key.toLowerCase());
+    if (event.key === ' ' && !event.repeat) jumpRequested = true;
+  };
+  const onKeyUp = (event) => keys.delete(event.key.toLowerCase());
+  const onBlur = () => {
+    keys.clear();
+    jumpRequested = false;
+  };
+  const stopPlaying = () => {
+    playing = false;
+    keys.clear();
+    jumpRequested = false;
+    player.visible = false;
+    playButton.textContent = 'WALK PLACE';
+    playHelp.textContent = 'Preview controls: drag to orbit, scroll to zoom. Walk mode: WASD / arrows to move, Space to jump, drag to look.';
+  };
+  const togglePlaying = () => {
+    playing = !playing;
+    keys.clear();
+    jumpRequested = false;
+    if (playing) {
+      player.position.copy(spawnPosition);
+      verticalVelocity = 0;
+      player.visible = true;
+      playButton.textContent = 'STOP WALKING';
+      playHelp.textContent = 'WASD / arrows: move · Space: jump · drag: look · scroll: camera distance';
+    } else {
+      stopPlaying();
+    }
+  };
+  playButton.addEventListener('click', togglePlaying);
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', onBlur);
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
   renderer.domElement.addEventListener('pointerup', onPointerUp);
@@ -292,23 +399,66 @@ function renderPreview(canvasHost, place) {
   resize();
   const animate = (now) => {
     if (!running) return;
-    const delta = Math.min((now - previous) / 1000, 0.05);
+    const delta = Math.min((now - previous) / 1000, 0.05) || 1 / 60;
     previous = now;
-    root.rotation.y += delta * 0.035;
+    let target = new THREE.Vector3();
+    if (playing) {
+      const forwardX = -Math.cos(yaw);
+      const forwardZ = -Math.sin(yaw);
+      const rightX = -forwardZ;
+      const rightZ = forwardX;
+      let moveX = 0;
+      let moveZ = 0;
+      if (keys.has('w') || keys.has('arrowup')) { moveX += forwardX; moveZ += forwardZ; }
+      if (keys.has('s') || keys.has('arrowdown')) { moveX -= forwardX; moveZ -= forwardZ; }
+      if (keys.has('d') || keys.has('arrowright')) { moveX += rightX; moveZ += rightZ; }
+      if (keys.has('a') || keys.has('arrowleft')) { moveX -= rightX; moveZ -= rightZ; }
+      const magnitude = Math.hypot(moveX, moveZ);
+      if (magnitude) {
+        const speed = keys.has('shift') ? 24 : 12;
+        player.position.x += moveX / magnitude * speed * delta;
+        player.position.z += moveZ / magnitude * speed * delta;
+      }
+      if (jumpRequested && Math.abs(verticalVelocity) < 0.01) verticalVelocity = 15;
+      jumpRequested = false;
+      verticalVelocity -= 32 * delta;
+      player.position.y += verticalVelocity * delta;
+      const rayOrigin = player.position.clone().add(new THREE.Vector3(0, 3, 0));
+      groundRay.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+      const ground = groundRay.intersectObjects(root.children, false)
+        .find((hit) => hit.object.visible && hit.point.y <= player.position.y + 2.9);
+      if (ground && verticalVelocity <= 0 && player.position.y <= ground.point.y + 0.15) {
+        player.position.y = ground.point.y;
+        verticalVelocity = 0;
+      }
+      if (player.position.y < -maxExtent * 2) {
+        player.position.copy(spawnPosition);
+        verticalVelocity = 0;
+      }
+      target = player.position.clone().add(new THREE.Vector3(0, 1.3, 0));
+    }
+    const cameraDistance = playing ? THREE.MathUtils.clamp(distance * 0.008, 8, 24) : distance;
     camera.position.set(
-      Math.cos(yaw) * Math.cos(pitch) * distance,
-      Math.sin(pitch) * distance,
-      Math.sin(yaw) * Math.cos(pitch) * distance
+      target.x + Math.cos(yaw) * Math.cos(pitch) * cameraDistance,
+      target.y + Math.sin(pitch) * cameraDistance,
+      target.z + Math.sin(yaw) * Math.cos(pitch) * cameraDistance
     );
-    camera.lookAt(0, 0, 0);
+    camera.lookAt(target);
     renderer.render(scene, camera);
     frame = window.requestAnimationFrame(animate);
   };
   frame = window.requestAnimationFrame(animate);
-  return () => {
+  const dispose = () => {
     running = false;
     window.cancelAnimationFrame(frame);
     observer.disconnect();
+    playButton.removeEventListener('click', togglePlaying);
+    document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('blur', onBlur);
+    playButton.disabled = true;
+    playButton.textContent = 'WALK PLACE';
+    playHelp.textContent = '';
     renderer.domElement.removeEventListener('pointerdown', onPointerDown);
     renderer.domElement.removeEventListener('pointermove', onPointerMove);
     renderer.domElement.removeEventListener('pointerup', onPointerUp);
@@ -322,6 +472,15 @@ function renderPreview(canvasHost, place) {
     });
     renderer.dispose();
   };
+  dispose.getState = () => ({
+    version: 1,
+    position: player.position.toArray(),
+    yaw,
+    pitch,
+    distance,
+    playing
+  });
+  return dispose;
 }
 
 export function initializeImporter({ api } = {}) {
@@ -329,6 +488,9 @@ export function initializeImporter({ api } = {}) {
   if (!shell) return;
   let place = null;
   let projectId = null;
+  let runtimeState = null;
+  let saveDirectory = null;
+  let isSaving = false;
   let disposePreview = () => {};
   const heading = make('div', 'import-heading');
   const title = make('input', 'import-title');
@@ -345,34 +507,18 @@ export function initializeImporter({ api } = {}) {
   const save = make('button', 'secondary-button circuit-cut', 'SAVE TO A-NULL');
   save.type = 'button';
   save.disabled = true;
+  const chooseSaveFolder = make('button', 'secondary-button circuit-cut', 'CHOOSE LOCAL SAVE FOLDER');
+  chooseSaveFolder.type = 'button';
+  const saveRecovery = make('button', 'secondary-button circuit-cut', 'SAVE RECOVERY NOW');
+  saveRecovery.type = 'button';
+  saveRecovery.disabled = true;
+  const loadRecovery = make('button', 'secondary-button circuit-cut', 'LOAD .RBXLX RECOVERY');
+  loadRecovery.type = 'button';
   const status = make('p', 'import-status', 'Choose a .rbxl or .rbxlx place file to begin.');
-  const notice = make('p', 'import-notice', '.rbxl and .rbxlx uploads are limited to 5 GB and processed on the A‑Null server. Large files require enough free disk space and RAM. Imports preview supported geometry; linked Roblox media is not downloaded and scripts are never run.');
-  const quickPlay = make('section', 'import-quick-play');
-  quickPlay.append(
-    make('h2', '', 'QUICK PLAY · ORIGINAL GAMES'),
-    make('p', 'small muted', 'Play one of the original games already included in A‑Null. These launch immediately without downloading external place files.')
-  );
-  const quickPlayGames = [
-    ['pulse-run', 'Pulse Run', 'Dodge signals and survive the storm.'],
-    ['archive-walk', 'Archive Walk', 'Explore a quiet machine-city.'],
-    ['beat-relay', 'Beat Relay', 'Repeat the four-note rhythm.'],
-    ['drift-duel', 'Fracturebound', 'Battle through a stitched-realm RPG.'],
-    ['echo-cabinet', 'Resonance Grove', 'Discover original signal-beings.'],
-    ['ashen-frontier', 'Dustwake Frontier', 'Explore a block-built wilderness.']
-  ];
-  const quickPlayGrid = make('div', 'import-quick-play-grid');
-  for (const [gameId, gameName, description] of quickPlayGames) {
-    const card = make('article', 'import-quick-play-card');
-    const launch = make('button', 'primary-button circuit-cut', `PLAY ${gameName.toUpperCase()}`);
-    launch.type = 'button';
-    launch.addEventListener('click', () => {
-      document.querySelector('[data-view="arcade"]')?.click();
-      window.dispatchEvent(new CustomEvent('app:arcade-launch', { detail: { gameId } }));
-    });
-    card.append(make('h3', '', gameName), make('p', '', description), launch);
-    quickPlayGrid.append(card);
-  }
-  quickPlay.append(quickPlayGrid);
+  const saveStatus = make('p', 'import-save-status', 'Local recovery saves are available in the Windows desktop app.');
+  saveStatus.setAttribute('role', 'status');
+  saveStatus.setAttribute('aria-live', 'polite');
+  const notice = make('p', 'import-notice', '.rbxl and .rbxlx uploads are limited to 5 GB and processed on the A‑Null server. The geometry-only walker shows up to 600 supported parts; up to 400 asset references are listed. Roblox scripts are not executed and linked media is not downloaded, so this is not a full Roblox game runtime.');
   const creatorGames = make('section', 'import-creator-games');
   creatorGames.append(
     make('h2', '', 'FIND THESE GAMES ON ROBLOX'),
@@ -411,6 +557,9 @@ export function initializeImporter({ api } = {}) {
   const list = make('div', 'import-project-list');
   const previewColumn = make('section', 'import-preview-column');
   const previewControls = make('div', 'import-preview-controls');
+  const playButton = make('button', 'secondary-button circuit-cut', 'WALK PLACE');
+  playButton.type = 'button';
+  playButton.disabled = true;
   const fullscreen = make('button', 'secondary-button circuit-cut', 'FULLSCREEN PREVIEW');
   fullscreen.type = 'button';
   fullscreen.addEventListener('click', async () => {
@@ -424,16 +573,17 @@ export function initializeImporter({ api } = {}) {
   document.addEventListener('fullscreenchange', () => {
     fullscreen.textContent = document.fullscreenElement === canvasHost ? 'EXIT FULLSCREEN' : 'FULLSCREEN PREVIEW';
   });
-  previewControls.append(fullscreen);
+  previewControls.append(playButton, fullscreen);
   const canvasHost = make('div', 'import-preview');
+  const playHelp = make('p', 'import-play-help');
   const summary = make('div', 'import-summary');
   const resources = make('div', 'import-resources');
   heading.append(title);
-  toolbar.append(choose, fileInput, save);
+  toolbar.append(choose, fileInput, save, chooseSaveFolder, saveRecovery, loadRecovery);
   library.append(make('h2', '', 'MY IMPORTS'), list);
-  previewColumn.append(previewControls, canvasHost, summary, resources);
+  previewColumn.append(previewControls, canvasHost, playHelp, summary, resources);
   body.append(library, previewColumn);
-  shell.append(heading, toolbar, status, notice, quickPlay, creatorGames, catalogLink, body);
+  shell.append(heading, toolbar, status, saveStatus, notice, creatorGames, catalogLink, body);
 
   function showMessage(text, error = false) {
     status.textContent = text;
@@ -449,10 +599,13 @@ export function initializeImporter({ api } = {}) {
     }
     const stats = [
       `INSTANCES ${place.summary.instances}`,
-      `SUPPORTED PARTS ${place.summary.parts}`,
+      place.summary.previewTruncated
+        ? `PREVIEW PARTS ${place.summary.parts} OF ${place.summary.totalParts}`
+        : `SUPPORTED PARTS ${place.summary.parts}`,
       `SCRIPTS OMITTED ${place.summary.scripts}`,
       `SOUNDS ${place.summary.sounds}`
     ];
+    if (place.summary.omittedAssets > 0) stats.push(`ASSET REFERENCES OMITTED ${place.summary.omittedAssets}`);
     for (const value of stats) summary.append(make('span', 'import-stat', value));
     resources.append(make('h3', '', 'ASSET REFERENCES'));
     if (!place.assets.length) {
@@ -472,11 +625,96 @@ export function initializeImporter({ api } = {}) {
     disposePreview();
     place = nextPlace;
     projectId = id;
+    runtimeState = place.runtimeSave || null;
     title.value = place.title;
     save.disabled = false;
-    disposePreview = renderPreview(canvasHost, place);
+    saveRecovery.disabled = !place.scene?.length || !window.antiNull?.saveEmulatorFile;
+    disposePreview = renderPreview(canvasHost, place, playButton, playHelp, runtimeState);
     renderMetadata();
   }
+
+  function updateSaveStatus(text, error = false) {
+    saveStatus.textContent = text;
+    saveStatus.classList.toggle('error', error);
+  }
+
+  async function saveRecoveryFile(automatic = false) {
+    if (!place || !window.antiNull?.saveEmulatorFile) {
+      updateSaveStatus('Local recovery saves require the Windows desktop app.', true);
+      return;
+    }
+    if (!saveDirectory) {
+      updateSaveStatus('Choose a local save folder to enable automatic recovery saves.', true);
+      return;
+    }
+    if (isSaving) return;
+    runtimeState = disposePreview.getState?.() || runtimeState;
+    if (!runtimeState) {
+      updateSaveStatus('The preview is not ready to save yet.', true);
+      return;
+    }
+    isSaving = true;
+    saveRecovery.disabled = true;
+    chooseSaveFolder.disabled = true;
+    loadRecovery.disabled = true;
+    choose.disabled = true;
+    fileInput.disabled = true;
+    save.disabled = true;
+    title.disabled = true;
+    updateSaveStatus('SAVING RECOVERY FILE… PLEASE KEEP THE APP OPEN.');
+    try {
+      const content = serializeEmulatorSave(place, runtimeState);
+      const result = await window.antiNull.saveEmulatorFile({ title: place.title, content });
+      updateSaveStatus(`${automatic ? 'AUTO-SAVED' : 'SAVED'} ${result.fileName} · ${new Date(result.savedAt).toLocaleTimeString()}`);
+    } catch (error) {
+      updateSaveStatus(`RECOVERY SAVE FAILED: ${error.message}`, true);
+    } finally {
+      isSaving = false;
+      saveRecovery.disabled = !place?.scene?.length || !window.antiNull?.saveEmulatorFile;
+      chooseSaveFolder.disabled = false;
+      loadRecovery.disabled = false;
+      choose.disabled = false;
+      fileInput.disabled = false;
+      save.disabled = !place;
+      title.disabled = false;
+    }
+  }
+
+  chooseSaveFolder.addEventListener('click', async () => {
+    if (!window.antiNull?.chooseEmulatorSaveFolder) {
+      updateSaveStatus('Choose a local save folder from the Windows desktop app.', true);
+      return;
+    }
+    try {
+      const selected = await window.antiNull.chooseEmulatorSaveFolder();
+      if (!selected) return;
+      saveDirectory = selected;
+      updateSaveStatus(`AUTO-SAVE FOLDER: ${saveDirectory} · SAVES EVERY 60 SECONDS`);
+      saveRecovery.disabled = !place?.scene?.length;
+    } catch (error) {
+      updateSaveStatus(`SAVE FOLDER SELECTION FAILED: ${error.message}`, true);
+    }
+  });
+  saveRecovery.addEventListener('click', () => saveRecoveryFile());
+  loadRecovery.addEventListener('click', async () => {
+    if (!window.antiNull?.loadEmulatorFile) {
+      updateSaveStatus('Loading local recovery files requires the Windows desktop app.', true);
+      return;
+    }
+    try {
+      const selected = await window.antiNull.loadEmulatorFile();
+      if (!selected) return;
+      const recovered = parseRbxlx(selected.content, selected.fileName);
+      const xmlDocument = new DOMParser().parseFromString(selected.content, 'application/xml');
+      recovered.runtimeSave = readEmulatorSaveState(xmlDocument);
+      if (!recovered.runtimeSave) throw new Error('This .rbxlx file has no A-Null emulator recovery data.');
+      displayPlace(recovered);
+      showMessage(`Recovered ${recovered.title} from ${selected.fileName}.`);
+      updateSaveStatus(`RECOVERED ${selected.fileName} · READY TO AUTO-SAVE EVERY 60 SECONDS`);
+    } catch (error) {
+      updateSaveStatus(`RECOVERY LOAD FAILED: ${error.message}`, true);
+    }
+  });
 
   async function loadProjects() {
     list.replaceChildren(make('p', 'small muted', 'Loading account imports…'));
@@ -507,9 +745,12 @@ export function initializeImporter({ api } = {}) {
               disposePreview();
               place = null;
               projectId = null;
+              runtimeState = null;
               canvasHost.replaceChildren();
               title.value = '';
               save.disabled = true;
+              saveRecovery.disabled = true;
+              playButton.disabled = true;
               renderMetadata();
             }
             await loadProjects();
@@ -547,7 +788,7 @@ export function initializeImporter({ api } = {}) {
         else showMessage(`Uploading ${file.name}: ${formatBytes(loaded)} / ${formatBytes(total)} (${Math.floor(loaded / total * 100)}%)`);
       });
       displayPlace(project);
-      showMessage(`Read ${file.name}. Preview the supported geometry, then save this project to your A‑Null account.`);
+      showMessage(`Read ${file.name}. Walk the supported geometry; use local recovery for timed .rbxlx saves.`);
     } catch (error) {
       showMessage(`IMPORT FAILED: ${error.message}`, true);
     } finally {
@@ -578,14 +819,37 @@ export function initializeImporter({ api } = {}) {
 
   window.addEventListener('app:viewchange', (event) => {
     if (event.detail?.view === 'import') {
-      if (place && !canvasHost.querySelector('canvas')) disposePreview = renderPreview(canvasHost, place);
+      if (place && !canvasHost.querySelector('canvas')) {
+        disposePreview = renderPreview(canvasHost, place, playButton, playHelp, runtimeState);
+      }
       loadProjects();
     } else if (place) {
+      runtimeState = disposePreview.getState?.() || runtimeState;
       disposePreview();
       canvasHost.replaceChildren(make('p', 'import-empty-preview', 'Preview paused while you are away.'));
     }
   });
 
+  window.addEventListener('beforeunload', (event) => {
+    if (!isSaving) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+  window.setInterval(() => {
+    if (place && saveDirectory) saveRecoveryFile(true);
+  }, 60_000);
+
   renderMetadata();
+  if (window.antiNull?.getEmulatorSaveFolder) {
+    window.antiNull.getEmulatorSaveFolder().then((directory) => {
+      saveDirectory = directory;
+      if (directory) updateSaveStatus(`AUTO-SAVE FOLDER: ${directory} · SAVES EVERY 60 SECONDS`);
+      else updateSaveStatus('Choose a local save folder to enable automatic recovery saves.');
+    }).catch((error) => updateSaveStatus(`SAVE FOLDER STATUS UNAVAILABLE: ${error.message}`, true));
+  } else {
+    chooseSaveFolder.disabled = true;
+    loadRecovery.disabled = true;
+    updateSaveStatus('Local recovery saves are available in the Windows desktop app.');
+  }
   loadProjects();
 }

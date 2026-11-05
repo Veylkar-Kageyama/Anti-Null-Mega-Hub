@@ -162,11 +162,11 @@ async function saveStoryChoice(choiceId, statusNode) {
   }
 }
 
-export function initializeArcade({ api, socket, user } = {}) {
+export function initializeArcade({ api, socket, user, shell: arcadeShell } = {}) {
   apiClient = api || null;
   gameSocket = socket || null;
   gameUser = user || {};
-  const shell = document.querySelector('#arcade-shell');
+  const shell = arcadeShell || document.querySelector('#arcade-shell');
   if (!shell) return;
   let activeGame = null;
   let cancelActiveGame = () => {};

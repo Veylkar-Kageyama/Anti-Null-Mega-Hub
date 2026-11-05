@@ -1,7 +1,5 @@
 # Third-party notices
 
-## rbx-reader
+## rbx-dom
 
-The server uses [`rbx-reader`](https://github.com/littleBitsman/rbx-reader) version 1.5.10 to parse binary Roblox `.rbxl` place files. It is licensed under the GNU Affero General Public License, version 3 or later (AGPL-3.0-or-later). Its license text is included at `node_modules/rbx-reader/LICENSE` after installing dependencies.
-
-The application must be distributed and operated in compliance with the applicable AGPL terms.
+The server uses [`rbx-dom`](https://github.com/Unreal-Works/rbx-dom-napi) and its platform-specific N-API binding to decode Roblox `.rbxl` files. They are licensed under the MIT License; the license text is included in each installed package under `node_modules`.

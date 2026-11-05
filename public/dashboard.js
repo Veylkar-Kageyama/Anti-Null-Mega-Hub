@@ -5,7 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import Cropper from 'cropperjs';
 import { initializeArcade } from './games.js';
-import { initializeImporter } from './importer.js';
+import { initializeAi } from './ai.js';
 
 const token = sessionStorage.getItem('antiNullToken');
 if (!token) location.replace('/');
@@ -34,6 +34,7 @@ const toast = (text, error = false) => {
 };
 const user = JSON.parse(sessionStorage.getItem('antiNullUser') || '{}');
 const state = { room: 'global', selected: null, cropper: null, socket: null, sceneReady: false, assets: [] };
+let importWorkspaceWindow = null;
 const setText = (selector, value) => { const element = document.querySelector(selector); if (element) element.textContent = value; };
 
 async function initialize() {
@@ -63,8 +64,8 @@ async function initialize() {
   wireProfile();
   wireAdmin();
   wireMenu();
+  initializeAi({ api });
   initializeArcade({ api, socket: state.socket, user });
-  initializeImporter({ api, user });
 }
 
 function wireNavigation() {
@@ -79,11 +80,25 @@ function wireNavigation() {
       window.location.href = '/studio.html';
       return;
     }
+    if (view === 'import') {
+      importWorkspaceWindow = window.open('/import.html', 'anti-null-import-workspace');
+      if (!importWorkspaceWindow) toast('Allow pop-ups to open the Import workspace in a separate tab.', true);
+      return;
+    }
     document.querySelectorAll('.view-panel').forEach((panel) => panel.classList.toggle('active', panel.id === `view-${view}`));
     document.querySelectorAll('.rail-link').forEach((link) => link.classList.toggle('active', link.dataset.view === view));
     window.dispatchEvent(new CustomEvent('app:viewchange', { detail: { view } }));
     if (view === 'frequency') document.querySelector('#chat-input').focus();
   }));
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || event.source !== importWorkspaceWindow ||
+        event.data?.type !== 'anti-null-import-auth-request') return;
+    event.source.postMessage({
+      type: 'anti-null-import-auth',
+      token: sessionStorage.getItem('antiNullToken'),
+      user
+    }, window.location.origin);
+  });
   document.querySelector('#signout-button').addEventListener('click', () => {
     state.socket?.disconnect();
     sessionStorage.clear();

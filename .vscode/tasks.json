@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Start Anti-Null server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"start:server"
+			],
+			"isBackground": true,
+			"problemMatcher": [
+				"$node"
+			],
+			"group": "build"
+		}
+	]
+}

@@ -5,6 +5,31 @@ const os = require('node:os');
 const path = require('node:path');
 const { parseBinaryPlace, parseXmlPlaceFile } = require('./server');
 const MAX_FILE_BYTES = 5 * 1024 ** 3;
+const WORKER_MEMORY_RESERVE_BYTES = 512 * 1024 ** 2;
+const ESTIMATED_BYTES_PER_INSTANCE = 6144;
+
+async function getAvailableMemory() {
+  const cgroups = [
+    ['/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory.current'],
+    ['/sys/fs/cgroup/memory/memory.limit_in_bytes', '/sys/fs/cgroup/memory/memory.usage_in_bytes']
+  ];
+  for (const [limitPath, usagePath] of cgroups) {
+    let limitText;
+    try {
+      limitText = await fs.readFile(limitPath, 'utf8');
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
+      throw error;
+    }
+    const limit = Number(limitText.trim());
+    if (limitText.trim() !== 'max' && Number.isFinite(limit) && limit < os.totalmem() * 2) {
+      const usage = Number((await fs.readFile(usagePath, 'utf8')).trim());
+      if (!Number.isFinite(usage)) throw new Error('The server memory limit could not be read.');
+      return Math.min(os.freemem(), Math.max(0, limit - usage));
+    }
+  }
+  return os.freemem();
+}
 
 process.once('message', async ({ filePath, originalName } = {}) => {
   try {
@@ -24,6 +49,7 @@ process.once('message', async ({ filePath, originalName } = {}) => {
     if (extension !== '.rbxl') throw new Error('Choose a .rbxl or .rbxlx place file.');
     const file = await fs.open(filePath, 'r');
     let expandedBytes = 0;
+    let instanceCount;
     try {
       if (size < 32) throw new Error('Binary place files must be at least 32 bytes.');
       const signatureAndHeader = Buffer.alloc(32);
@@ -33,9 +59,9 @@ process.once('message', async ({ filePath, originalName } = {}) => {
         throw new Error('This is not a valid binary Roblox place file.');
       }
       const classCount = signatureAndHeader.readUInt32LE(16);
-      const instanceCount = signatureAndHeader.readUInt32LE(20);
-      if (!classCount || classCount > 10000 || !instanceCount || instanceCount > 10000) {
-        throw new Error('Binary place files are limited to 10,000 classes and instances.');
+      instanceCount = signatureAndHeader.readUInt32LE(20);
+      if (!classCount || !instanceCount) {
+        throw new Error('The binary place must declare at least one class and instance.');
       }
       let offset = 32;
       let chunkCount = 0;
@@ -65,9 +91,11 @@ process.once('message', async ({ filePath, originalName } = {}) => {
     } finally {
       await file.close();
     }
-    const estimatedMemory = Math.ceil(size * 2 + expandedBytes + 512 * 1024 ** 2);
-    if (estimatedMemory > os.freemem()) {
-      throw new Error('This place needs more free memory to decode than this server currently has. Try a machine with more RAM.');
+    const estimatedMemory = size * 2 + expandedBytes +
+      instanceCount * ESTIMATED_BYTES_PER_INSTANCE + WORKER_MEMORY_RESERVE_BYTES;
+    const availableMemory = await getAvailableMemory();
+    if (estimatedMemory > availableMemory) {
+      throw new Error('This place needs more free memory to decode than this server currently has. Try a smaller place or a machine with more RAM.');
     }
     const buffer = await fs.readFile(filePath);
     const project = parseBinaryPlace(buffer, originalName);
