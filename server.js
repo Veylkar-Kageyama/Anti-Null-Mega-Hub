@@ -25,6 +25,8 @@ httpServer.requestTimeout = 60 * 60 * 1000;
 const io = new Server(httpServer, { maxHttpBufferSize: 1e6 });
 const uploadDir = process.env.UPLOAD_DIR || path.join(os.homedir(), '.anti-null', 'uploads');
 fs.mkdirSync(uploadDir, { recursive: true });
+const vaultDir = process.env.VAULT_DIR || path.join(os.homedir(), '.anti-null', 'vault');
+fs.mkdirSync(vaultDir, { recursive: true });
 
 const User = mongoose.models.User || mongoose.model('User', new mongoose.Schema({
   email: { type: String, unique: true, required: true, lowercase: true, trim: true },
@@ -61,7 +63,21 @@ const Message = mongoose.models.Message || mongoose.model('Message', new mongoos
 
 const Group = mongoose.models.Group || mongoose.model('Group', new mongoose.Schema({
   name: { type: String, required: true, maxlength: 50 },
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+}, { timestamps: true }));
+
+const VaultFile = mongoose.models.VaultFile || mongoose.model('VaultFile', new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  originalName: { type: String, required: true, maxlength: 180 },
+  storedName: { type: String, required: true, unique: true },
+  mimeType: { type: String, required: true },
+  size: { type: Number, required: true, min: 0 }
+}, { timestamps: true }));
+
+const Announcement = mongoose.models.Announcement || mongoose.model('Announcement', new mongoose.Schema({
+  text: { type: String, required: true, maxlength: 2000 },
+  author: { type: String, required: true, maxlength: 24 }
 }, { timestamps: true }));
 
 const GAME_ECHOES = {
@@ -126,13 +142,7 @@ const ImportedProject = mongoose.models.ImportedProject || mongoose.model('Impor
   }
 }, { timestamps: true }));
 
-const APP_OWNER = {
-  email: 'jskeltonjr2010@gmail.com',
-  password: 'DandadanOka9!',
-  username: 'Veylkar'
-};
-
-const announcementStore = [];
+const OWNER_EMAIL = String(process.env.OWNER_EMAIL || '').trim().toLowerCase();
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false });
 const arcadeLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
@@ -239,34 +249,6 @@ function signToken(user) {
   const secret = process.env.JWT_SECRET;
   if (!secret && process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required in production.');
   return jwt.sign({ sub: String(user._id) }, secret || 'local-development-secret-change-me', { expiresIn: '7d' });
-}
-async function ensureOwnerAccount() {
-  if (!mongoose.connection.readyState) return null;
-  const email = APP_OWNER.email.toLowerCase();
-  let owner = await User.findOne({ email });
-  if (!owner) {
-    owner = await User.create({
-      email,
-      username: APP_OWNER.username,
-      passwordHash: await bcrypt.hash(APP_OWNER.password, 12),
-      approved: true,
-      hasHammers: true,
-      isAdmin: true,
-      role: 'Owner',
-      roleColor: '#f5b942'
-    });
-    return owner;
-  }
-  owner.email = email;
-  owner.username = APP_OWNER.username;
-  owner.passwordHash = await bcrypt.hash(APP_OWNER.password, 12);
-  owner.approved = true;
-  owner.hasHammers = true;
-  owner.isAdmin = true;
-  owner.role = 'Owner';
-  owner.roleColor = '#f5b942';
-  await owner.save();
-  return owner;
 }
 async function requireAuth(req, res, next) {
   try {
@@ -946,10 +928,6 @@ app.post('/api/auth/signup', authLimiter, requireMongo, async (req, res) => {
     return res.status(400).json({ error: 'Use a valid email, a 3-24 character username, and a password of at least 12 characters.' });
   }
   try {
-    if (email === APP_OWNER.email.toLowerCase()) {
-      const owner = await ensureOwnerAccount();
-      return res.status(201).json({ token: signToken(owner), user: publicUser(owner), pending: false, message: 'Owner access granted.' });
-    }
     const user = await User.create({ email, username, passwordHash: await bcrypt.hash(password, 12) });
     res.status(201).json({ pending: true, user: publicUser(user), message: 'Your request is pending administrator approval.' });
   } catch (error) {
@@ -959,10 +937,6 @@ app.post('/api/auth/signup', authLimiter, requireMongo, async (req, res) => {
 app.post('/api/auth/login', authLimiter, requireMongo, async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const password = String(req.body.password || '');
-  if (email === APP_OWNER.email.toLowerCase() && password === APP_OWNER.password) {
-    const owner = await ensureOwnerAccount();
-    return res.json({ token: signToken(owner), user: publicUser(owner) });
-  }
   const user = await User.findOne({ email });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) return res.status(401).json({ error: 'Email or password is incorrect.' });
   if (user.banned) return res.status(403).json({ error: 'This account has been banned.' });
@@ -980,7 +954,16 @@ app.post('/api/bootstrap', authLimiter, requireMongo, async (req, res) => {
   const username = String(req.body.username || '').trim();
   if (password.length < 12 || username.length < 3 || username.length > 24) return res.status(400).json({ error: 'Choose a 12+ character password and a 3-24 character username.' });
   try {
-    const user = await User.create({ email: configuredEmail, username, passwordHash: await bcrypt.hash(password, 12), approved: true, hasHammers: true, isAdmin: true, role: 'Administrator', roleColor: '#f5b942' });
+    const user = await User.create({
+      email: configuredEmail,
+      username,
+      passwordHash: await bcrypt.hash(password, 12),
+      approved: true,
+      hasHammers: true,
+      isAdmin: true,
+      role: configuredEmail === OWNER_EMAIL ? 'Owner' : 'Administrator',
+      roleColor: '#f5b942'
+    });
     res.status(201).json({ token: signToken(user), user: publicUser(user) });
   } catch (_error) { res.status(409).json({ error: 'That admin account already exists.' }); }
 });
@@ -1590,18 +1573,74 @@ const upload = multer({ storage, limits: { fileSize: 15 * 1024 * 1024 }, fileFil
   const allowed = /^(image\/(png|jpeg|webp|gif)|audio\/(mpeg|wav|ogg)|model\/(gltf\+json)|application\/octet-stream)$/;
   done(allowed.test(file.mimetype) ? null : new Error('Unsupported file type.'), allowed.test(file.mimetype));
 } });
-app.post('/api/upload', requireMongo, requireAuth, upload.single('file'), (req, res) => res.status(201).json({ url: `/uploads/${req.file.filename}`, name: req.file.originalname, mimeType: req.file.mimetype }));
-app.get('/api/announcements', requireMongo, requireAuth, async (_req, res) => {
-  res.json({ announcements: announcementStore.slice(0, 25) });
+const vaultStorage = multer.diskStorage({
+  destination: vaultDir,
+  filename: (_req, file, done) => done(null, `${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`)
 });
-app.post('/api/announcements', requireMongo, requireAuth, requireAdmin, (req, res) => {
+const vaultUpload = multer({
+  storage: vaultStorage,
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, done) => {
+    const extension = path.extname(file.originalname).toLowerCase();
+    const supported = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.mp3', '.wav', '.ogg', '.obj', '.gltf', '.glb']);
+    const accepted = supported.has(extension);
+    done(accepted ? null : new Error('Choose an image, audio, OBJ, GLTF, or GLB file.'), accepted);
+  }
+});
+app.post('/api/upload', requireMongo, requireAuth, upload.single('file'), (req, res) => res.status(201).json({ url: `/uploads/${req.file.filename}`, name: req.file.originalname, mimeType: req.file.mimetype }));
+app.get('/api/vault', arcadeLimiter, requireMongo, requireAuth, async (req, res) => {
+  const files = await VaultFile.find({ user: req.user._id }).sort({ createdAt: -1 }).lean();
+  res.json({ files: files.map((file) => ({
+    id: String(file._id), name: file.originalName, mimeType: file.mimeType, size: file.size,
+    createdAt: file.createdAt.toISOString()
+  })) });
+});
+app.post('/api/vault', arcadeLimiter, requireMongo, requireAuth, vaultUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose a file to store.' });
+  try {
+    const file = await VaultFile.create({
+      user: req.user._id,
+      originalName: req.file.originalname.slice(0, 180),
+      storedName: req.file.filename,
+      mimeType: req.file.mimetype,
+      size: req.file.size
+    });
+    res.status(201).json({ file: { id: String(file._id), name: file.originalName, mimeType: file.mimeType, size: file.size, createdAt: file.createdAt.toISOString() } });
+  } catch (error) {
+    await fs.promises.rm(req.file.path, { force: true }).catch(() => {});
+    console.error(`Vault metadata save failed: ${error.message}`);
+    res.status(500).json({ error: 'The file could not be stored.' });
+  }
+});
+app.get('/api/vault/:id/file', arcadeLimiter, requireMongo, requireAuth, async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'File not found.' });
+  const file = await VaultFile.findOne({ _id: req.params.id, user: req.user._id }).lean();
+  if (!file) return res.status(404).json({ error: 'File not found.' });
+  res.type(file.mimeType);
+  res.download(path.join(vaultDir, file.storedName), file.originalName, (error) => {
+    if (error && !res.headersSent) res.status(error.code === 'ENOENT' ? 404 : 500).json({ error: 'The stored file is unavailable.' });
+  });
+});
+app.delete('/api/vault/:id', arcadeLimiter, requireMongo, requireAuth, async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'File not found.' });
+  const file = await VaultFile.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+  if (!file) return res.status(404).json({ error: 'File not found.' });
+  await fs.promises.rm(path.join(vaultDir, file.storedName), { force: true });
+  res.json({ deleted: true });
+});
+app.get('/api/announcements', requireMongo, requireAuth, async (_req, res) => {
+  const announcements = await Announcement.find().sort({ createdAt: -1 }).limit(25).lean();
+  res.json({ announcements: announcements.map((item) => ({
+    id: String(item._id), text: item.text, author: item.author, createdAt: item.createdAt.toISOString()
+  })) });
+});
+app.post('/api/announcements', requireMongo, requireAuth, requireAdmin, async (req, res) => {
   const text = String(req.body.text || '').trim().slice(0, 2000);
   if (!text) return res.status(400).json({ error: 'Announcement text is required.' });
-  const announcement = { id: crypto.randomUUID(), text, author: req.user.username, createdAt: new Date().toISOString() };
-  announcementStore.unshift(announcement);
-  if (announcementStore.length > 50) announcementStore.length = 50;
-  io.emit('announcement', announcement);
-  res.status(201).json({ announcement });
+  const announcement = await Announcement.create({ text, author: req.user.username });
+  const result = { id: String(announcement._id), text, author: announcement.author, createdAt: announcement.createdAt.toISOString() };
+  io.emit('announcement', result);
+  res.status(201).json({ announcement: result });
 });
 app.get('/api/messages', requireMongo, requireAuth, async (req, res) => {
   const room = String(req.query.room || 'global');
@@ -1617,13 +1656,31 @@ app.get('/api/admin/pending', requireMongo, requireAuth, requireAdmin, async (_r
   const users = await User.find({ approved: false }).select('email username createdAt').sort({ createdAt: 1 }).lean();
   res.json({ users });
 });
+app.get('/api/admin/users', requireMongo, requireAuth, requireAdmin, async (_req, res) => {
+  const users = await User.find().select('email username role approved banned muted').sort({ username: 1 }).lean();
+  res.json({ users: users.map((item) => ({
+    id: String(item._id), email: item.email, username: item.username, role: item.role,
+    approved: item.approved, banned: item.banned, muted: item.muted
+  })) });
+});
 app.patch('/api/admin/users/:id', requireMongo, requireAuth, requireAdmin, async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'User not found.' });
   const allowed = ['approved', 'hasHammers', 'banned', 'muted'];
   const update = {};
   for (const key of allowed) if (typeof req.body[key] === 'boolean') update[key] = req.body[key];
+  if (req.params.id === String(req.user._id) && update.banned) return res.status(400).json({ error: 'You cannot ban your own account.' });
+  if (update.banned) {
+    const target = await User.findById(req.params.id).select('isAdmin banned');
+    if (target?.isAdmin && !target.banned && await User.countDocuments({ isAdmin: true, banned: false }) <= 1) {
+      return res.status(409).json({ error: 'The last active administrator cannot be banned.' });
+    }
+  }
   const user = await User.findByIdAndUpdate(req.params.id, { $set: update }, { new: true });
   if (!user) return res.status(404).json({ error: 'User not found.' });
-  if (user.banned) io.to(`user:${user.id}`).emit('account:revoked');
+  if (user.banned) {
+    io.to(`user:${user.id}`).emit('account:revoked');
+    io.in(`user:${user.id}`).disconnectSockets(true);
+  }
   res.json({ user: publicUser(user) });
 });
 app.post('/api/admin/broadcast', requireMongo, requireAuth, requireAdmin, (req, res) => {
@@ -1636,11 +1693,65 @@ app.post('/api/admin/glitch', requireMongo, requireAuth, requireAdmin, (_req, re
   io.emit('reality-glitch', { createdAt: new Date().toISOString() });
   res.status(202).json({ ok: true });
 });
+app.get('/api/groups', requireMongo, requireAuth, async (req, res) => {
+  const groups = await Group.find({ members: req.user._id }).populate('members', 'username').sort({ updatedAt: -1 }).lean();
+  res.json({ groups: groups.map((group) => ({
+    id: String(group._id), name: group.name,
+    ownerId: String(group.owner || group.members[0]?._id || ''),
+    members: group.members.map((member) => ({ id: String(member._id), username: member.username }))
+  })) });
+});
+function parseGroupMemberIds(value) {
+  if (!Array.isArray(value) || value.length > 49 || value.some((id) => !mongoose.isValidObjectId(String(id)))) return null;
+  return [...new Set(value.map(String))];
+}
 app.post('/api/groups', requireMongo, requireAuth, async (req, res) => {
   const name = String(req.body.name || '').trim().slice(0, 50);
   if (!name) return res.status(400).json({ error: 'Group name is required.' });
-  const group = await Group.create({ name, members: [req.user._id] });
-  res.status(201).json({ group: { id: String(group._id), name: group.name } });
+  const memberIds = parseGroupMemberIds(req.body.memberIds ?? []);
+  if (!memberIds) return res.status(400).json({ error: 'The selected group members are invalid.' });
+  const members = await User.find({ _id: { $in: memberIds }, approved: true, banned: false }).select('_id').lean();
+  if (members.length !== memberIds.length) return res.status(400).json({ error: 'One or more selected accounts are unavailable.' });
+  const group = await Group.create({
+    name,
+    owner: req.user._id,
+    members: [req.user._id, ...members.map((member) => member._id).filter((id) => String(id) !== String(req.user._id))]
+  });
+  res.status(201).json({ group: { id: String(group._id), name: group.name, ownerId: String(req.user._id) } });
+});
+app.put('/api/groups/:id/members', requireMongo, requireAuth, async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'Group not found.' });
+  const group = await Group.findById(req.params.id);
+  if (!group) return res.status(404).json({ error: 'Group not found.' });
+  const ownerId = String(group.owner || group.members[0]);
+  if (ownerId !== String(req.user._id)) return res.status(403).json({ error: 'Only the group creator can change its members.' });
+  const memberIds = parseGroupMemberIds(req.body.memberIds ?? []);
+  if (!memberIds) return res.status(400).json({ error: 'The selected group members are invalid.' });
+  const members = await User.find({ _id: { $in: memberIds }, approved: true, banned: false }).select('_id').lean();
+  if (members.length !== memberIds.length) return res.status(400).json({ error: 'One or more selected accounts are unavailable.' });
+  const nextMembers = [ownerId, ...members.map((member) => String(member._id)).filter((id) => id !== ownerId)];
+  const previousMembers = group.members.map(String);
+  group.owner = ownerId;
+  group.members = nextMembers;
+  await group.save();
+  const room = `group:${group.id}`;
+  const removedIds = previousMembers.filter((id) => !nextMembers.includes(id));
+  const addedIds = nextMembers.filter((id) => !previousMembers.includes(id));
+  for (const id of addedIds) io.to(`user:${id}`).emit('group:available', { id: String(group._id), name: group.name });
+  if (removedIds.length) {
+    const sockets = await io.in(room).fetchSockets();
+    for (const socket of sockets) {
+      if (removedIds.includes(String(socket.data.user?._id))) {
+        await socket.leave(room);
+        socket.emit('group:access-revoked', { id: String(group._id) });
+      }
+    }
+  }
+  const updated = await Group.findById(group._id).populate('members', 'username').lean();
+  res.json({ group: {
+    id: String(updated._id), name: updated.name, ownerId,
+    members: updated.members.map((member) => ({ id: String(member._id), username: member.username }))
+  } });
 });
 app.use((error, req, res, _next) => {
   releaseBinaryImport(req);
@@ -1651,22 +1762,24 @@ app.use((error, req, res, _next) => {
   }
   const isMulterError = error instanceof multer.MulterError;
   const isAiUploadError = req.path === '/api/ai/chat' && error.message?.startsWith('Unsupported file type.');
-  const status = isMulterError
-    ? (error.code === 'LIMIT_FILE_SIZE' ? 413 : 400)
-    : isAiUploadError ? 400 : 500;
-  res.status(status).json({
-    error: isAiUploadError
-      ? error.message
-      : isMulterError
-        ? error.code === 'LIMIT_FILE_SIZE'
-          ? req.path === '/api/imports/place-chunk'
-            ? 'Upload chunks must be 8 MB or smaller.'
-            : req.path === '/api/ai/chat'
-              ? 'AI attachments are limited to 10 MB per file and 20 MB total.'
-              : 'Place files are limited to 5 GB.'
-          : error.message
-        : 'The request could not be completed.'
-  });
+  const isVaultUploadError = req.path === '/api/vault' && error.message?.startsWith('Choose an image, audio');
+  let status = 500;
+  let message = 'The request could not be completed.';
+  if (isAiUploadError || isVaultUploadError) {
+    status = 400;
+    message = error.message;
+  } else if (isMulterError) {
+    status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      if (req.path === '/api/vault') message = 'Vault files are limited to 50 MB.';
+      else if (req.path === '/api/imports/place-chunk') message = 'Upload chunks must be 8 MB or smaller.';
+      else if (req.path === '/api/ai/chat') message = 'AI attachments are limited to 10 MB per file and 20 MB total.';
+      else message = 'Place files are limited to 5 GB.';
+    } else {
+      message = error.message;
+    }
+  }
+  res.status(status).json({ error: message });
 });
 
 async function canJoinRoom(user, room) {
@@ -1821,7 +1934,7 @@ io.on('connection', (socket) => {
     socket.data.lastLobbyCreate = Date.now();
     leaveGameLobby(socket);
     const id = crypto.randomUUID();
-    const isOwner = user.email === APP_OWNER.email.toLowerCase() && user.role === 'Owner';
+    const isOwner = user.email === OWNER_EMAIL && user.role === 'Owner';
     const player = {
       id: String(user._id),
       username: user.username,
@@ -1861,8 +1974,8 @@ io.on('connection', (socket) => {
       id: playerId,
       username: user.username,
       isAdmin: Boolean(user.isAdmin),
-      isOwner: user.email === APP_OWNER.email.toLowerCase() && user.role === 'Owner',
-      character: user.email === APP_OWNER.email.toLowerCase() && user.role === 'Owner' ? 'Prime Architect' : user.isAdmin ? 'Rift Warden' : 'Field Pilot'
+      isOwner: user.email === OWNER_EMAIL && user.role === 'Owner',
+      character: user.email === OWNER_EMAIL && user.role === 'Owner' ? 'Prime Architect' : user.isAdmin ? 'Rift Warden' : 'Field Pilot'
     };
     lobby.players.set(playerId, player);
     if (lobby.gameId === 'fracture-run' && !lobby.sharedState.positions[playerId]) {
@@ -2002,7 +2115,7 @@ io.on('connection', (socket) => {
     const reply = typeof done === 'function' ? done : () => {};
     try {
       const currentUser = await User.findById(user._id).select('email role banned');
-      if (!currentUser || currentUser.banned || currentUser.email !== APP_OWNER.email.toLowerCase() || currentUser.role !== 'Owner') {
+      if (!currentUser || currentUser.banned || currentUser.email !== OWNER_EMAIL || currentUser.role !== 'Owner') {
         return reply({ error: 'This world ability is reserved for the Owner.' });
       }
       const lobby = typeof payload?.lobbyId === 'string' ? gameLobbies.get(payload.lobbyId) : null;
@@ -2053,22 +2166,25 @@ io.on('connection', (socket) => {
   });
 });
 
-async function startServer({ port = Number(process.env.PORT) || 0 } = {}) {
-  await new Promise((resolve, reject) => {
-    httpServer.once('error', reject);
-    httpServer.listen(port, '0.0.0.0', resolve);
-  });
-  const address = httpServer.address();
+async function startServer({ port = Number(process.env.PORT) || 0, host = '0.0.0.0' } = {}) {
+  if (process.env.NODE_ENV === 'production' && (process.env.JWT_SECRET || '').length < 32) {
+    throw new Error('JWT_SECRET must be set to at least 32 characters in production.');
+  }
   if (process.env.MONGODB_URI) {
-    mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000 })
-      .then(ensureOwnerAccount)
-      .catch((error) => {
-        console.error('MongoDB connection or account initialization failed. Check MONGODB_URI and Atlas network access.');
-        console.error(error.message);
-      });
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
+    } catch (error) {
+      console.error('MongoDB connection failed. Check MONGODB_URI and database network access.');
+      throw error;
+    }
   } else {
     console.warn('MongoDB is not configured. Configure MONGODB_URI to enable accounts and social features.');
   }
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, host, resolve);
+  });
+  const address = httpServer.address();
   return { url: `http://127.0.0.1:${address.port}`, close: () => httpServer.close() };
 }
 

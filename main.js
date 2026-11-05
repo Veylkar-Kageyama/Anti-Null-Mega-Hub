@@ -199,7 +199,7 @@ ipcMain.handle('app:load-emulator-file', loadEmulatorFile);
 app.whenReady().then(async () => {
   await loadSaveDirectory();
   buildMenu();
-  hubServer = await startServer();
+  hubServer = await startServer({ host: '127.0.0.1' });
   await createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

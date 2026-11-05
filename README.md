@@ -1,6 +1,38 @@
 # Anti-Null-Mega-Hub
 The Anti-Null Realm awaits your creations.
 
+## Run locally
+
+Run `npm start` to open the desktop app. It starts the site on a temporary localhost-only port and stops the server when the app exits; no router port forwarding or public server is needed. This runs the app on your computer, but does not publish a public website. Public accounts, chat, and other shared features still require a continuously running hosted server and a configured MongoDB database.
+
+For local account and permission testing without Atlas, start the private MongoDB replica set and launch the app with its local database configuration:
+
+```sh
+docker compose -f compose.local.yaml up -d --wait
+npm run start:local
+```
+
+On the first launch, use the bootstrap form with `admin@localhost.test` and `anti-null-local-bootstrap`, then choose an admin password. This local database is separate from the remote database in `.env`, persists in a Docker volume, and is only exposed on `127.0.0.1:27017`. Stop it with `docker compose -f compose.local.yaml down`.
+
+## Self-host the website
+
+The website can run on any Linux VPS with Docker Compose; Render and Replit are not required. Point a domain's DNS A record at the VPS, allow inbound ports 80 and 443 on the VPS firewall, then configure and start the stack:
+
+```sh
+cp -n .env.example .env
+openssl rand -hex 32
+```
+
+If `.env` already exists, merge the missing settings from `.env.example` instead of replacing it. Put one generated value in `JWT_SECRET`, set `DOMAIN` and `INITIAL_ADMIN_EMAIL`, and set `INITIAL_ADMIN_TOKEN` to a second long random value. Set `OWNER_EMAIL` to the initial admin email to grant that account the Owner role. Then run:
+
+```sh
+docker compose up -d --build
+```
+
+Open `https://DOMAIN` and use the bootstrap form with the configured email and token to create the first administrator. Docker keeps MongoDB, uploaded files, and vault files in persistent volumes across container restarts. The app and database ports are not exposed publicly; Caddy serves HTTPS on the VPS. The VPS must remain online for the public site to work, but your personal computer does not need to keep a port open. Use `docker compose down` to stop the stack without deleting its data.
+
+AI features require a valid `OPENAI_API_KEY`; reward credits also need an offerwall and signed postback configuration. Those provider features remain unavailable until configured.
+
 ## Imported place workspace
 
 The Windows desktop app can preview and walk through supported geometry from `.rbxl` and `.rbxlx` files. It is not a Roblox runtime: Roblox scripts, linked assets, physics, and game services are not fully converted or executed.

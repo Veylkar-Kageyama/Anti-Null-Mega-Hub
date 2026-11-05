@@ -1,0 +1,75 @@
+services:
+  mongodb:
+    image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --eval 'try { if (rs.status().ok === 1) quit(0); } catch (error) {}
+          try { quit(rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongodb:27017"}]}).ok === 1 ? 0 : 1); }
+          catch (error) { quit(1); }'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 4174
+      MONGODB_URI: mongodb://mongodb:27017/anti_null?replicaSet=rs0
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:?Set INITIAL_ADMIN_EMAIL in .env}
+      INITIAL_ADMIN_TOKEN: ${INITIAL_ADMIN_TOKEN:?Set INITIAL_ADMIN_TOKEN in .env}
+      OWNER_EMAIL: ${OWNER_EMAIL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_REWARD_WALL_URL: ${AI_REWARD_WALL_URL:-}
+      AI_REWARD_POSTBACK_SECRET: ${AI_REWARD_POSTBACK_SECRET:-}
+      UPLOAD_DIR: /data/uploads
+      VAULT_DIR: /data/vault
+    volumes:
+      - app_data:/data
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    expose:
+      - "4174"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4174/api/status').then((r) => r.json()).then((s) => process.exit(s.database ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  app_data:
+  caddy_data:
+  caddy_config:

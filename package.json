@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "start:local": "node scripts/start-local.js",
     "start:server": "node server.js",
     "test": "node --test",
     "dist": "electron-builder"

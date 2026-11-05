@@ -15,6 +15,8 @@ const api = async (url, options = {}) => {
   const response = await fetch(url, { ...fetchOptions, headers: { ...headers(), ...options.headers } });
   const data = responseType === 'text'
     ? await response.text()
+    : responseType === 'blob'
+      ? await response.blob()
     : await response.json().catch(() => ({}));
   if (!response.ok) {
     let message = 'Request failed.';
@@ -58,7 +60,9 @@ async function initialize() {
   wireNavigation();
   wireClock();
   await loadAnnouncements();
+  wireGroups();
   await initializeSocket();
+  await loadGroups();
   wireForge();
   wireVault();
   wireProfile();
@@ -151,11 +155,18 @@ async function initializeSocket() {
   });
   state.socket.on('void-toast', ({ text }) => toast(text));
   state.socket.on('account:revoked', () => { sessionStorage.clear(); location.replace('/'); });
+  state.socket.on('group:available', () => loadGroups().catch((error) => toast(error.message, true)));
+  state.socket.on('group:access-revoked', ({ id }) => {
+    if (state.room === `group:${id}`) joinRoom('global');
+    loadGroups().catch((error) => toast(error.message, true));
+  });
   state.socket.on('reality-glitch', triggerGlitch);
 }
 
 function joinRoom(room) {
   state.room = room;
+  const roomSelect = document.querySelector('#room-id');
+  roomSelect.value = [...roomSelect.options].some((option) => option.value === room) ? room : 'global';
   const list = document.querySelector('#message-list');
   list.replaceChildren();
   state.socket?.emit('room:join', room, (result) => {
@@ -235,18 +246,90 @@ document.querySelector('#direct-room').addEventListener('click', async () => {
     joinRoom(room);
   } catch (error) { toast(error.message, true); }
 });
-document.querySelector('#new-group').addEventListener('click', async () => {
-  const name = prompt('Name this private group (members can be added from its room settings).');
-  if (!name?.trim()) return;
+function wireGroups() {
+  const dialog = document.querySelector('#group-dialog');
+  document.querySelector('#new-group').addEventListener('click', () => openGroupDialog());
+  document.querySelector('#group-cancel').addEventListener('click', () => dialog.close());
+  document.querySelector('#group-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const groupId = dialog.dataset.groupId || '';
+    const memberIds = [...document.querySelectorAll('#group-member-options input:checked')].map((input) => input.value);
+    const payload = { name: document.querySelector('#group-name').value.trim(), memberIds };
+    try {
+      const { group } = await api(groupId ? `/api/groups/${encodeURIComponent(groupId)}/members` : '/api/groups', {
+        method: groupId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      dialog.close();
+      await loadGroups();
+      if (!groupId) joinRoom(`group:${group.id}`);
+      toast(groupId ? 'Group members updated.' : 'Private group created.');
+    } catch (error) { toast(error.message, true); }
+  });
+}
+
+async function openGroupDialog(group = null) {
   try {
-    const { group } = await api('/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-    const option = document.createElement('option');
-    option.value = `group:${group.id}`;
-    option.textContent = group.name;
-    document.querySelector('#room-id').append(option);
-    joinRoom(option.value);
+    const { users } = await api('/api/users');
+    const choices = users.filter((item) => item.id !== user.id);
+    const options = document.querySelector('#group-member-options');
+    options.replaceChildren();
+    for (const candidate of choices) {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = candidate.id;
+      checkbox.checked = Boolean(group?.members.some((member) => member.id === candidate.id));
+      const name = document.createElement('span');
+      name.textContent = candidate.username;
+      label.append(checkbox, name);
+      options.append(label);
+    }
+    const dialog = document.querySelector('#group-dialog');
+    dialog.dataset.groupId = group?.id || '';
+    document.querySelector('#group-name').value = group?.name || '';
+    document.querySelector('#group-dialog-title').textContent = group ? 'Manage group members' : 'Create a private group';
+    document.querySelector('#group-save').textContent = group ? 'SAVE MEMBERS' : 'CREATE GROUP';
+    dialog.showModal();
   } catch (error) { toast(error.message, true); }
-});
+}
+
+async function loadGroups() {
+  const { groups } = await api('/api/groups');
+  const list = document.querySelector('#group-list');
+  const select = document.querySelector('#room-id');
+  list.replaceChildren();
+  [...select.options].filter((option) => option.value.startsWith('group:')).forEach((option) => option.remove());
+  for (const group of groups) {
+    const room = `group:${group.id}`;
+    const option = document.createElement('option');
+    option.value = room;
+    option.textContent = group.name;
+    select.append(option);
+    const row = document.createElement('div');
+    row.className = 'group-room-row';
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = `room-option${state.room === room ? ' active' : ''}`;
+    open.dataset.room = room;
+    open.textContent = `◇  ${group.name}`;
+    open.addEventListener('click', () => joinRoom(room));
+    row.append(open);
+    if (group.ownerId === user.id) {
+      const manage = document.createElement('button');
+      manage.type = 'button';
+      manage.className = 'icon-button group-manage';
+      manage.title = 'Manage group members';
+      manage.setAttribute('aria-label', `Manage ${group.name} members`);
+      manage.textContent = '···';
+      manage.addEventListener('click', () => openGroupDialog(group));
+      row.append(manage);
+    }
+    list.append(row);
+  }
+  select.value = groups.some((group) => `group:${group.id}` === state.room) ? state.room : 'global';
+}
 document.querySelector('#attach-message').addEventListener('click', async () => {
   try {
     const selected = await chooseAsset('image');
@@ -557,11 +640,67 @@ function wireVault() {
   document.querySelector('#vault-upload').addEventListener('click', () => document.querySelector('#vault-file').click());
   document.querySelector('#vault-file').addEventListener('change', async (event) => {
     const file = event.target.files?.[0]; if (!file) return;
-    const card = document.createElement('article'); card.className = 'vault-card circuit-cut';
-    const name = document.createElement('strong'); name.textContent = file.name;
-    const detail = document.createElement('small'); detail.textContent = `${(file.size / 1024).toFixed(1)} KB / local session`;
-    card.append(name, detail); document.querySelector('#vault-items').replaceChildren(card); event.target.value = '';
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      await api('/api/vault', { method: 'POST', body: form });
+      await loadVault();
+      toast('File stored in your vault.');
+    } catch (error) { toast(error.message, true); }
+    finally { event.target.value = ''; }
   });
+  loadVault().catch((error) => toast(error.message, true));
+}
+
+async function loadVault() {
+  const { files } = await api('/api/vault');
+  const list = document.querySelector('#vault-items');
+  list.replaceChildren();
+  if (!files.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'The vault is empty.';
+    list.append(empty);
+    return;
+  }
+  for (const file of files) {
+    const card = document.createElement('article');
+    card.className = 'vault-card circuit-cut';
+    const name = document.createElement('strong');
+    name.textContent = file.name;
+    const detail = document.createElement('small');
+    detail.textContent = `${(file.size / 1024).toFixed(1)} KB · ${new Date(file.createdAt).toLocaleDateString()}`;
+    const actions = document.createElement('div');
+    actions.className = 'vault-actions';
+    const download = document.createElement('button');
+    download.type = 'button';
+    download.className = 'secondary-button circuit-cut';
+    download.textContent = 'DOWNLOAD';
+    download.addEventListener('click', async () => {
+      try {
+        const blob = await api(`/api/vault/${encodeURIComponent(file.id)}/file`, { responseType: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) { toast(error.message, true); }
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'danger-button circuit-cut';
+    remove.textContent = 'DELETE';
+    remove.addEventListener('click', async () => {
+      try {
+        await api(`/api/vault/${encodeURIComponent(file.id)}`, { method: 'DELETE' });
+        await loadVault();
+      } catch (error) { toast(error.message, true); }
+    });
+    actions.append(download, remove);
+    card.append(name, detail, actions);
+    list.append(card);
+  }
 }
 
 function wireProfile() {
@@ -596,6 +735,7 @@ function wireProfile() {
 
 async function wireAdmin() {
   if (!user.isAdmin) return;
+  loadAdminUsers();
   document.querySelector('#post-announcement').addEventListener('click', async () => {
     const text = document.querySelector('#announcement-text').value.trim(); if (!text) return;
     try { await api('/api/announcements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }); document.querySelector('#announcement-text').value = ''; }
@@ -632,8 +772,47 @@ async function loadPending() {
     });
   } catch (error) { toast(error.message, true); }
 }
+async function loadAdminUsers() {
+  try {
+    const { users } = await api('/api/admin/users');
+    const list = document.querySelector('#admin-users');
+    list.replaceChildren();
+    if (!users.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = 'No accounts are registered.';
+      list.append(empty);
+      return;
+    }
+    users.forEach((candidate) => {
+      const row = document.createElement('div');
+      row.className = 'pending-user';
+      const identity = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = candidate.username;
+      const detail = document.createElement('small');
+      detail.textContent = `${candidate.email} · ${candidate.approved ? candidate.role : 'PENDING'}${candidate.banned ? ' · BANNED' : ''}`;
+      identity.append(name, detail);
+      const actions = document.createElement('div');
+      actions.className = 'pending-actions';
+      const ban = document.createElement('button');
+      ban.type = 'button';
+      ban.className = candidate.banned ? '' : 'danger-button';
+      ban.textContent = candidate.banned ? 'UNBAN' : 'BAN';
+      ban.disabled = candidate.id === user.id && !candidate.banned;
+      ban.title = ban.disabled ? 'You cannot ban your own account' : '';
+      ban.addEventListener('click', () => moderate(candidate.id, { banned: !candidate.banned }));
+      actions.append(ban);
+      row.append(identity, actions);
+      list.append(row);
+    });
+  } catch (error) { toast(error.message, true); }
+}
 async function moderate(id, changes) {
-  try { await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes) }); await loadPending(); }
+  try {
+    await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes) });
+    await Promise.all([loadPending(), loadAdminUsers()]);
+  }
   catch (error) { toast(error.message, true); }
 }
 function triggerGlitch() {
